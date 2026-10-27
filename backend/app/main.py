@@ -11,8 +11,21 @@ Architecture:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from contextlib import asynccontextmanager
+
 from app.core.config import settings
 from app.api.routes import auth, projects, conversations, health
+from app.db.session import engine, Base, db_url
+import app.models.models  # ensure models are registered
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Auto-initialize database tables in local development mode (SQLite)
+    if db_url.startswith("sqlite"):
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    yield
 
 
 # ── Application Factory ──────────────────────────────────────────
@@ -28,6 +41,7 @@ def create_app() -> FastAPI:
         description="AI-powered incident investigation engineer for developers",
         docs_url="/api/docs" if settings.DEBUG else None,
         redoc_url="/api/redoc" if settings.DEBUG else None,
+        lifespan=lifespan,
     )
 
     # ── CORS ──────────────────────────────────────────────────

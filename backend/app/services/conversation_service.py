@@ -156,7 +156,7 @@ class ConversationService:
             content=content,
             content_type=content_type,
             sequence_number=next_seq,
-            metadata=metadata,
+            extra_metadata=metadata,
         )
         self.db.add(msg)
 

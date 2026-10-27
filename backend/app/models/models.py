@@ -45,9 +45,12 @@ from sqlalchemy import (
     String, Text, Boolean, Integer, Float,
     DateTime, ForeignKey, UniqueConstraint,
     CheckConstraint, Index, Enum as SAEnum,
-    func,
+    func, Uuid, JSON,
 )
-from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
+
+# Cross-database compatible types (PostgreSQL in production, SQLite in local zero-docker mode)
+UUID = Uuid
+JSONB = JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -659,8 +662,8 @@ class Message(TimestampMixin, Base):
     )
     
     # Metadata for tool calls and evidence
-    metadata: Mapped[Optional[dict]] = mapped_column(
-        JSONB, nullable=True,
+    extra_metadata: Mapped[Optional[dict]] = mapped_column(
+        "metadata", JSONB, nullable=True,
         comment="Tool call params, evidence refs, model info"
     )
     

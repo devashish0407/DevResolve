@@ -139,7 +139,7 @@ async def get_conversation(
                 content=m.content,
                 content_type=m.content_type,
                 sequence_number=m.sequence_number,
-                metadata=m.metadata,
+                metadata=m.extra_metadata,
                 created_at=m.created_at,
             )
             for m in messages
@@ -189,7 +189,7 @@ async def post_message(
         content=msg.content,
         content_type=msg.content_type,
         sequence_number=msg.sequence_number,
-        metadata=msg.metadata,
+        metadata=msg.extra_metadata,
         created_at=msg.created_at,
     )
 

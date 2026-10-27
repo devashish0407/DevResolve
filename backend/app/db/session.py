@@ -1,12 +1,8 @@
 """
 DevResolve Database Engine & Session Management
 
-Design Principles:
-─────────────────
-• Connection pooling with overflow limits to prevent connection exhaustion
-• Async sessions for non-blocking I/O under FastAPI
-• Session-per-request pattern to ensure proper cleanup
-• Pool recycling to prevent stale connections
+Supports PostgreSQL (asyncpg) with full connection pooling,
+with automatic fallback to SQLite (aiosqlite) when running locally without Docker.
 """
 
 from sqlalchemy.ext.asyncio import (
@@ -18,52 +14,45 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import settings
 
+# ── Resilient Database URL Resolution ─────────────────────────────
+db_url = settings.DATABASE_URL.strip() if settings.DATABASE_URL else ""
+if not db_url:
+    db_url = "sqlite+aiosqlite:///./devresolve.db"
 
-# ── Async Engine ──────────────────────────────────────────────────
-# Uses asyncpg driver for async PostgreSQL operations.
-# Pool settings prevent the "connection pool exhausted" scenario
-# that DevResolve is literally designed to help debug.
-
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    pool_size=settings.DB_POOL_SIZE,
-    max_overflow=settings.DB_MAX_OVERFLOW,
-    pool_timeout=settings.DB_POOL_TIMEOUT,
-    pool_recycle=settings.DB_POOL_RECYCLE,
-    echo=settings.DB_ECHO,
-    pool_pre_ping=True,   # Verify connection health before use
-)
-
+# ── Engine Configuration ──────────────────────────────────────────
+if db_url.startswith("sqlite"):
+    engine = create_async_engine(
+        db_url,
+        connect_args={"check_same_thread": False},
+        echo=settings.DB_ECHO,
+    )
+else:
+    engine = create_async_engine(
+        db_url,
+        pool_size=settings.DB_POOL_SIZE,
+        max_overflow=settings.DB_MAX_OVERFLOW,
+        pool_timeout=settings.DB_POOL_TIMEOUT,
+        pool_recycle=settings.DB_POOL_RECYCLE,
+        echo=settings.DB_ECHO,
+        pool_pre_ping=True,
+    )
 
 # ── Session Factory ───────────────────────────────────────────────
-# expire_on_commit=False prevents lazy-load issues after commit
-# in async context.
-
 async_session_factory = async_sessionmaker(
     engine,
     class_=AsyncSession,
     expire_on_commit=False,
 )
 
-
 # ── Base Model ────────────────────────────────────────────────────
-
 class Base(DeclarativeBase):
     """Base class for all SQLAlchemy ORM models."""
     pass
 
-
-# ── Dependency ────────────────────────────────────────────────────
-
+# ── FastAPI Dependency ────────────────────────────────────────────
 async def get_db() -> AsyncSession:
     """
-    FastAPI dependency that yields a database session.
-    Ensures proper cleanup via context manager.
-
-    Usage:
-        @router.get("/items")
-        async def get_items(db: AsyncSession = Depends(get_db)):
-            ...
+    FastAPI dependency yielding an async database session with automatic cleanup.
     """
     async with async_session_factory() as session:
         try:
