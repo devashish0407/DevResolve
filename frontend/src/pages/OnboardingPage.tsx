@@ -27,7 +27,7 @@ export default function OnboardingPage() {
   const [projectDescription, setProjectDescription] = useState('');
 
   const handleFinish = () => {
-    navigate('/app');
+    navigate('/app/chat');
   };
 
   return (
