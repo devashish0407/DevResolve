@@ -3,22 +3,30 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Sparkles, Eye, EyeOff } from 'lucide-react';
 import { GithubIcon } from '../components/icons';
 
+import { useAuth } from '../lib/AuthContext';
+
 export default function LoginPage() {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    // TODO: Supabase auth sign in
-    setTimeout(() => {
+    setError(null);
+    try {
+      await login(email, password);
       navigate('/app');
+    } catch (err: any) {
+      setError(err?.message || 'Login failed. Please verify credentials.');
+    } finally {
       setLoading(false);
-    }, 800);
+    }
   };
 
   return (
@@ -40,6 +48,12 @@ export default function LoginPage() {
         <div className="glass-card p-8">
           <h1 className="text-2xl font-bold text-white mb-1">Welcome back</h1>
           <p className="text-sm text-slate-400 mb-8">Sign in to continue to DevResolve</p>
+
+          {error && (
+            <div className="mb-4 p-3 rounded-lg bg-status-danger/10 border border-status-danger/30 text-xs text-status-danger">
+              {error}
+            </div>
+          )}
 
           <form onSubmit={handleLogin} className="space-y-5">
             {/* Email */}

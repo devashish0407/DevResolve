@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { useAuth } from '../lib/AuthContext';
 import {
   LayoutDashboard,
   MessageSquarePlus,
@@ -34,6 +35,21 @@ const recentChats = [
 export default function DashboardLayout() {
   const [collapsed, setCollapsed] = useState(false);
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
+  };
+
+  const displayName = user?.displayName || 'Devashish Sharma';
+  const email = user?.email || 'devashish@email.com';
+  const initials = displayName
+    .split(' ')
+    .map((w) => w[0])
+    .join('')
+    .substring(0, 2)
+    .toUpperCase();
 
   return (
     <div className="flex h-screen bg-dark-900 overflow-hidden">
@@ -134,16 +150,16 @@ export default function DashboardLayout() {
           {/* User */}
           <div className={`flex items-center gap-3 px-3 py-2 rounded-lg ${collapsed ? 'justify-center' : ''}`}>
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-accent-blue to-accent-purple flex items-center justify-center text-xs font-bold text-white shrink-0">
-              DS
+              {initials}
             </div>
             {!collapsed && (
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-white truncate">Devashish Sharma</p>
-                <p className="text-xs text-slate-500 truncate">devashish@email.com</p>
+                <p className="text-sm font-medium text-white truncate">{displayName}</p>
+                <p className="text-xs text-slate-500 truncate">{email}</p>
               </div>
             )}
             <button
-              onClick={() => navigate('/login')}
+              onClick={handleLogout}
               title="Sign Out"
               className="text-slate-400 hover:text-white p-1 rounded transition-colors"
             >
