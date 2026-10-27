@@ -9,8 +9,8 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const { login } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('devashish@devresolve.io');
+  const [password, setPassword] = useState('admin12345');
   const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,7 +47,19 @@ export default function LoginPage() {
         {/* Card */}
         <div className="glass-card p-8">
           <h1 className="text-2xl font-bold text-white mb-1">Welcome back</h1>
-          <p className="text-sm text-slate-400 mb-8">Sign in to continue to DevResolve</p>
+          <p className="text-sm text-slate-400 mb-5">Sign in to continue to DevResolve</p>
+
+          {/* Admin Credentials Helper Badge */}
+          <div className="mb-6 p-3 rounded-xl bg-accent-blue/10 border border-accent-blue/30 text-xs text-slate-300 flex items-center justify-between">
+            <div>
+              <p className="font-semibold text-white">Default Admin Account</p>
+              <p className="font-mono text-accent-blue text-[11px] mt-0.5">devashish@devresolve.io</p>
+              <p className="text-slate-400 text-[11px]">Password: <span className="font-mono text-slate-200">admin12345</span></p>
+            </div>
+            <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-accent-blue/20 text-accent-blue">
+              Pre-filled
+            </span>
+          </div>
 
           {error && (
             <div className="mb-4 p-3 rounded-lg bg-status-danger/10 border border-status-danger/30 text-xs text-status-danger">
