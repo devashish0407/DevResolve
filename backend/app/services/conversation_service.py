@@ -8,6 +8,7 @@ import uuid
 from typing import List, Optional, Tuple
 from datetime import datetime, timedelta
 from sqlalchemy import select, func, desc, asc
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 
@@ -133,6 +134,7 @@ class ConversationService:
     ) -> List[Conversation]:
         stmt = (
             select(Conversation)
+            .options(selectinload(Conversation.project))
             .outerjoin(Project, Project.id == Conversation.project_id)
             .outerjoin(OrganizationMember, OrganizationMember.organization_id == Project.organization_id)
             .where(

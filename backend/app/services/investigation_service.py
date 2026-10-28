@@ -674,7 +674,7 @@ class InvestigationAgentService:
                 conversation_history=prior_history,
             )
 
-            final_reply = ai_reply or notice or self._generate_conversational_reply(user_input, project_name)
+            final_reply = ai_reply or (notice if notice and ("quota" in notice.lower() or "limit" in notice.lower() or "key" in notice.lower()) else None) or self._generate_conversational_reply(user_input, project_name)
 
             yield self._format_sse("step_update", {
                 "step_id": "step_chat",

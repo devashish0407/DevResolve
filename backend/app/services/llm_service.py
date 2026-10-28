@@ -446,6 +446,7 @@ class LLMService:
 
         # 1. Groq Cloud
         if provider == "groq":
+            url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",

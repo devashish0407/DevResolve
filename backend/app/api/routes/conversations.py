@@ -46,6 +46,7 @@ async def list_conversations(
             ConversationResponse(
                 id=c.id,
                 project_id=c.project_id,
+                project_name=c.project.name if c.project else "Main Workspace",
                 creator_id=c.user_id,
                 title=c.title,
                 status=c.status,

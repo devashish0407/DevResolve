@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Outlet, NavLink, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
 import { api, Conversation, NotificationItem } from '../lib/api';
@@ -11,6 +11,7 @@ import {
   Bell,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   LogOut,
   Sparkles,
   Plus,
@@ -46,8 +47,34 @@ export default function DashboardLayout() {
   const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
   const [aiConfig, setAiConfig] = useState<any>(null);
   const [rateLimitFlags, setRateLimitFlags] = useState<any[]>([]);
+  const [expandedWorkspaces, setExpandedWorkspaces] = useState<{ [key: string]: boolean }>({});
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+
+  const toggleWorkspace = (wsKey: string) => {
+    setExpandedWorkspaces((prev) => ({
+      ...prev,
+      [wsKey]: prev[wsKey] !== undefined ? !prev[wsKey] : false,
+    }));
+  };
+
+  // Group chats by Workspace / Project
+  const workspaceGroups = useMemo(() => {
+    const groups: { [key: string]: { projectName: string; projectId: string; chats: Conversation[] } } = {};
+    for (const chat of chats) {
+      const wsName = chat.project_name || 'Main Workspace';
+      const wsKey = chat.project_id || wsName;
+      if (!groups[wsKey]) {
+        groups[wsKey] = {
+          projectName: wsName,
+          projectId: chat.project_id || wsKey,
+          chats: [],
+        };
+      }
+      groups[wsKey].chats.push(chat);
+    }
+    return Object.values(groups);
+  }, [chats]);
 
   const fetchAIConfig = async () => {
     try {
@@ -201,20 +228,20 @@ export default function DashboardLayout() {
           ))}
         </nav>
 
-        {/* Chats History */}
+        {/* Workspaces & Investigations History */}
         {!collapsed && (
           <div className="mt-6 px-3 flex-1 overflow-y-auto">
             <div className="flex items-center justify-between px-3 mb-2">
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                Recent Chats
+                Workspaces
               </p>
               <span className="text-[10px] text-slate-500 font-mono">
-                {chats.length} active
+                {workspaceGroups.length} workspace{workspaceGroups.length === 1 ? '' : 's'}
               </span>
             </div>
 
-            <div className="space-y-0.5">
-              {chats.length === 0 ? (
+            <div className="space-y-3">
+              {workspaceGroups.length === 0 ? (
                 <div className="px-3 py-4 text-center rounded-lg border border-dashed border-surface-border">
                   <p className="text-xs text-slate-500">No investigations yet</p>
                   <button
@@ -225,46 +252,83 @@ export default function DashboardLayout() {
                   </button>
                 </div>
               ) : (
-                chats.map((chat) => {
-                  const isActive = window.location.search.includes(chat.id);
+                workspaceGroups.map((group) => {
+                  const isExpanded = expandedWorkspaces[group.projectId] ?? true;
                   return (
-                    <div
-                      key={chat.id}
-                      onClick={() => navigate(`/app/chat?id=${chat.id}`)}
-                      className={`nav-item w-full text-left group cursor-pointer flex items-center justify-between relative transition-all ${
-                        isActive
-                          ? 'bg-dark-800 text-white font-medium border-l-2 border-accent-blue shadow-sm'
-                          : 'hover:bg-dark-800/60 text-slate-300'
-                      }`}
-                    >
-                      <div className="flex-1 min-w-0 pr-2">
-                        <p className="text-sm truncate group-hover:text-white">
-                          {chat.title}
-                        </p>
-                        <p className="text-[11px] text-slate-500">
-                          {chat.last_message_at
-                            ? new Date(chat.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                            : 'Recent'}
-                        </p>
+                    <div key={group.projectId || group.projectName} className="space-y-1">
+                      {/* Workspace Header */}
+                      <div
+                        onClick={() => toggleWorkspace(group.projectId)}
+                        className="flex items-center justify-between px-2.5 py-1.5 text-xs font-semibold text-slate-300 hover:text-white cursor-pointer select-none rounded-md hover:bg-dark-800/60 transition-colors group"
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <FolderGit2 size={13} className="text-accent-blue shrink-0 group-hover:scale-110 transition-transform" />
+                          <span className="truncate">{group.projectName}</span>
+                        </div>
+                        <div className="flex items-center gap-1 text-[10px] text-slate-500 font-mono">
+                          <span>{group.chats.length}</span>
+                          {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          onClick={(e) => handleDeleteChat(chat.id, e)}
-                          title="Delete investigation"
-                          className="opacity-0 group-hover:opacity-100 p-1 text-slate-500 hover:text-rose-400 hover:bg-dark-700 rounded transition-all"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                        <span
-                          className={`w-2 h-2 rounded-full shrink-0 ${
-                            chat.status === 'resolved'
-                              ? 'bg-status-success'
-                              : chat.status === 'investigating'
-                              ? 'bg-status-warning'
-                              : 'bg-accent-blue'
-                          }`}
-                        />
-                      </div>
+
+                      {/* Investigations belonging to this workspace */}
+                      {isExpanded && (
+                        <div className="space-y-0.5 pl-2 border-l border-surface-border/60 ml-2">
+                          {group.chats.map((chat) => {
+                            const isActive = window.location.search.includes(chat.id);
+                            return (
+                              <div
+                                key={chat.id}
+                                onClick={() =>
+                                  navigate(
+                                    `/app/chat?id=${chat.id}&project=${chat.project_id || ''}&projectName=${encodeURIComponent(
+                                      group.projectName
+                                    )}`
+                                  )
+                                }
+                                className={`nav-item w-full text-left group cursor-pointer flex items-center justify-between relative transition-all py-1.5 px-2.5 rounded-lg ${
+                                  isActive
+                                    ? 'bg-dark-800 text-white font-medium border-l-2 border-accent-blue shadow-sm'
+                                    : 'hover:bg-dark-800/60 text-slate-300'
+                                }`}
+                              >
+                                <div className="flex-1 min-w-0 pr-1.5">
+                                  <p className="text-xs truncate group-hover:text-white leading-tight">
+                                    {chat.title}
+                                  </p>
+                                  <p className="text-[10px] text-slate-500 mt-0.5">
+                                    {chat.message_count > 0 ? `${chat.message_count} msg` : 'Active'} •{' '}
+                                    {chat.last_message_at
+                                      ? new Date(chat.last_message_at).toLocaleTimeString([], {
+                                          hour: '2-digit',
+                                          minute: '2-digit',
+                                        })
+                                      : 'Recent'}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <button
+                                    onClick={(e) => handleDeleteChat(chat.id, e)}
+                                    title="Delete investigation"
+                                    className="opacity-0 group-hover:opacity-100 p-1 text-slate-500 hover:text-rose-400 hover:bg-dark-700 rounded transition-all"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                  <span
+                                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                      chat.status === 'resolved'
+                                        ? 'bg-status-success'
+                                        : chat.status === 'investigating'
+                                        ? 'bg-status-warning'
+                                        : 'bg-accent-blue'
+                                    }`}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   );
                 })

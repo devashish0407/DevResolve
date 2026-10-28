@@ -77,6 +77,7 @@ class ConversationCreate(ConversationBase):
 class ConversationResponse(ConversationBase):
     id: uuid.UUID
     project_id: uuid.UUID
+    project_name: Optional[str] = None
     creator_id: uuid.UUID
     status: str  # investigating, hypothesized, testing, resolved, closed
     message_count: int = 0

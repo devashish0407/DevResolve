@@ -30,6 +30,7 @@ export interface Project {
 export interface Conversation {
   id: string;
   project_id: string;
+  project_name?: string;
   creator_id: string;
   title: string;
   status: string;
