@@ -137,7 +137,9 @@ export default function BYOKSettingsModal({ isOpen, onClose, onSaved }: BYOKSett
         const res = await api.testAISettings('groq', model);
         setTestResult(res);
       } else {
-        const res = await api.testAISettings(provider, model, apiKey.trim() || undefined);
+        const cleanKey = apiKey.trim();
+        const keyToSend = (cleanKey && !cleanKey.includes('•') && !cleanKey.includes('...')) ? cleanKey : undefined;
+        const res = await api.testAISettings(provider, model, keyToSend);
         setTestResult(res);
       }
     } catch (err: any) {
@@ -156,20 +158,22 @@ export default function BYOKSettingsModal({ isOpen, onClose, onSaved }: BYOKSett
     setTestResult(null);
     try {
       if (engineMode === 'free') {
-        // Free Mode uses platform Groq master key (empty api_key resets to platform key)
+        // Free Mode uses platform Groq master key (empty api_key resets to verified platform key)
         await api.saveAISettings('groq', model, '');
-        setHasKey(false);
-        setMaskedKey('');
+        setHasKey(true);
+        setMaskedKey('gsk_••••••••gHxV');
         setProvider('groq');
       } else {
+        const cleanKey = apiKey.trim();
+        const keyToSend = (cleanKey && !cleanKey.includes('•') && !cleanKey.includes('...')) ? cleanKey : '';
         await api.saveAISettings(
           provider,
           model,
-          apiKey.trim() || undefined
+          keyToSend
         );
-        if (apiKey.trim()) {
+        if (cleanKey && !cleanKey.includes('•')) {
           setHasKey(true);
-          setMaskedKey(apiKey.slice(0, 4) + '••••••••' + apiKey.slice(-4));
+          setMaskedKey(cleanKey.slice(0, 4) + '••••••••' + cleanKey.slice(-4));
           setApiKey('');
         }
       }

@@ -1,20 +1,37 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Sparkles, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Sparkles, Eye, EyeOff, Loader2, CheckCircle2, AlertCircle, X, Key } from 'lucide-react';
 import { GithubIcon } from '../components/icons';
 
 import { useAuth } from '../lib/AuthContext';
+import { api } from '../lib/api';
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const { login, loginWithOAuth } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
-  const [email, setEmail] = useState('devashish@devresolve.io');
-  const [password, setPassword] = useState('admin12345');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
   const [socialLoading, setSocialLoading] = useState<'github' | 'google' | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Forgot Password modal state
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotSuccess, setForgotSuccess] = useState(false);
+  const [forgotError, setForgotError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const err = params.get('error');
+    if (err) {
+      setError(decodeURIComponent(err));
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,11 +52,25 @@ export default function LoginPage() {
     setError(null);
     try {
       await loginWithOAuth(provider);
-      navigate('/app');
     } catch (err: any) {
       setError(err?.message || `${provider.toUpperCase()} authentication failed.`);
     } finally {
       setSocialLoading(null);
+    }
+  };
+
+  const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotEmail) return;
+    setForgotLoading(true);
+    setForgotError(null);
+    try {
+      await api.forgotPassword(forgotEmail);
+      setForgotSuccess(true);
+    } catch (err: any) {
+      setForgotError(err.message || 'Failed to dispatch reset email. Please try again.');
+    } finally {
+      setForgotLoading(false);
     }
   };
 
@@ -61,19 +92,7 @@ export default function LoginPage() {
         {/* Card */}
         <div className="glass-card p-8">
           <h1 className="text-2xl font-bold text-white mb-1">Welcome back</h1>
-          <p className="text-sm text-slate-400 mb-5">Sign in to continue to DevResolve</p>
-
-          {/* Admin Credentials Helper Badge */}
-          <div className="mb-6 p-3 rounded-xl bg-accent-blue/10 border border-accent-blue/30 text-xs text-slate-300 flex items-center justify-between">
-            <div>
-              <p className="font-semibold text-white">Default Admin Account</p>
-              <p className="font-mono text-accent-blue text-[11px] mt-0.5">devashish@devresolve.io</p>
-              <p className="text-slate-400 text-[11px]">Password: <span className="font-mono text-slate-200">admin12345</span></p>
-            </div>
-            <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-accent-blue/20 text-accent-blue">
-              Pre-filled
-            </span>
-          </div>
+          <p className="text-sm text-slate-400 mb-6">Sign in to continue to DevResolve</p>
 
           {error && (
             <div className="mb-4 p-3 rounded-lg bg-status-danger/10 border border-status-danger/30 text-xs text-status-danger">
@@ -91,7 +110,7 @@ export default function LoginPage() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
+                placeholder="you@gmail.com"
                 className="input-field"
                 required
               />
@@ -132,9 +151,18 @@ export default function LoginPage() {
                 />
                 <span className="text-sm text-slate-400">Remember me</span>
               </label>
-              <a href="#" className="text-sm text-accent-blue hover:text-accent-blue/80 transition-colors">
+              <button
+                type="button"
+                onClick={() => {
+                  setForgotEmail(email || '');
+                  setForgotError(null);
+                  setForgotSuccess(false);
+                  setShowForgotModal(true);
+                }}
+                className="text-sm text-accent-blue hover:text-accent-blue/80 transition-colors"
+              >
                 Forgot password?
-              </a>
+              </button>
             </div>
 
             {/* Submit */}
@@ -199,17 +227,102 @@ export default function LoginPage() {
 
         {/* Footer */}
         <p className="text-center text-sm text-slate-500 mt-6">
-          By continuing, you agree to our{' '}
-          <a href="#" className="text-accent-blue hover:underline">Terms</a> and{' '}
-          <a href="#" className="text-accent-blue hover:underline">Privacy Policy</a>.
-        </p>
-        <p className="text-center text-sm text-slate-500 mt-3">
           Don't have an account?{' '}
           <Link to="/signup" className="text-accent-blue hover:underline font-medium">
             Sign up
           </Link>
         </p>
       </div>
+
+      {/* Forgot Password Modal Window */}
+      {showForgotModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+          <div className="w-full max-w-md glass-card p-6 border border-slate-700/80 shadow-2xl relative">
+            <button
+              onClick={() => setShowForgotModal(false)}
+              className="absolute right-4 top-4 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-dark-800 transition-colors"
+            >
+              <X size={18} />
+            </button>
+
+            {forgotSuccess ? (
+              <div className="text-center py-4 space-y-4 animate-fade-in">
+                <div className="w-12 h-12 rounded-2xl bg-status-success/15 border border-status-success/30 flex items-center justify-center mx-auto text-status-success">
+                  <CheckCircle2 size={26} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white mb-1.5">Check Your Email</h3>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    If an account is registered with <span className="font-mono text-white font-medium">{forgotEmail}</span>, we have dispatched a password reset link to your inbox.
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-2.5">
+                    ⏱️ The link will expire in <strong>1 hour</strong>. Please check your inbox and spam folder.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowForgotModal(false)}
+                  className="btn-gradient w-full py-2.5 text-xs font-semibold"
+                >
+                  Back to Sign In
+                </button>
+              </div>
+            ) : (
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <Key size={18} className="text-accent-blue" />
+                  <h3 className="text-lg font-bold text-white">Reset Your Password</h3>
+                </div>
+                <p className="text-xs text-slate-400 mb-4 leading-relaxed">
+                  Enter your registered email address below. We'll send you an email containing a secure link to choose a new password.
+                </p>
+
+                {forgotError && (
+                  <div className="mb-4 p-3 rounded-lg bg-status-danger/10 border border-status-danger/30 text-xs text-status-danger flex items-start gap-2">
+                    <AlertCircle size={15} className="shrink-0 mt-0.5" />
+                    <span>{forgotError}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                      Email address
+                    </label>
+                    <input
+                      type="email"
+                      value={forgotEmail}
+                      onChange={(e) => setForgotEmail(e.target.value)}
+                      placeholder="you@gmail.com"
+                      className="input-field text-sm"
+                      required
+                      autoFocus
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotModal(false)}
+                      className="btn-ghost text-xs py-2 px-3 border border-surface-border"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={forgotLoading || !forgotEmail}
+                      className="btn-gradient text-xs py-2 px-4 flex items-center gap-2 disabled:opacity-50"
+                    >
+                      {forgotLoading && <Loader2 size={13} className="animate-spin" />}
+                      <span>{forgotLoading ? 'Sending link...' : 'Send Reset Link'}</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

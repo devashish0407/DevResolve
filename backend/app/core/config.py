@@ -58,9 +58,13 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "text-embedding-3-small"
     EMBEDDING_DIMENSIONS: int = 1536
 
-    # ── GitHub ───────────────────────────────────────────────────
+    # ── GitHub & Google OAuth ────────────────────────────────────
     GITHUB_CLIENT_ID: Optional[str] = None
     GITHUB_CLIENT_SECRET: Optional[str] = None
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
+    FRONTEND_URL: str = "http://localhost:5173"
+    BACKEND_URL: str = "http://localhost:8000"
 
     # ── Mail Protocols / Email Alerts ─────────────────────────────
     SUPPORT_NOTIFICATION_EMAIL: str = "devashish0716@gmail.com"

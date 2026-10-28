@@ -42,10 +42,11 @@ async def save_ai_settings(
 ):
     """Update runtime AI provider, model, and API key."""
     user_id = current_user.get("auth_id", "guest")
+    clean_api_key = LLMService.clean_key(payload.api_key)
     LLMService.update_byok_config(
         provider=payload.provider.lower().strip(),
         model=payload.model.strip(),
-        api_key=payload.api_key.strip() if payload.api_key else None,
+        api_key=clean_api_key,
     )
     return {
         "status": "success",
@@ -60,8 +61,8 @@ async def test_ai_connection(
     current_user: dict = Depends(get_current_user),
 ):
     """Test connection with the specified provider and API key."""
-    key = payload.api_key
-    if not key:
+    key = LLMService.clean_key(payload.api_key)
+    if not key or "•" in key or "..." in key:
         key = LLMService.get_active_api_key(payload.provider)
 
     if not key and payload.provider != "ollama":

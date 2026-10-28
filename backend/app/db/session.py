@@ -22,6 +22,10 @@ DEFAULT_SQLITE_PATH = (BACKEND_DIR / "devresolve.db").as_posix()
 db_url = settings.DATABASE_URL.strip() if settings.DATABASE_URL else ""
 if not db_url or "sqlite" in db_url:
     db_url = f"sqlite+aiosqlite:///{DEFAULT_SQLITE_PATH}"
+elif db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+elif db_url.startswith("postgresql://") and not db_url.startswith("postgresql+asyncpg://"):
+    db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 # ── Engine Configuration ──────────────────────────────────────────
 if db_url.startswith("sqlite"):

@@ -44,10 +44,12 @@ def _sync_sqlite_schema(conn):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Auto-initialize database tables and migrate missing columns in local development mode (SQLite)
-    if db_url.startswith("sqlite"):
-        async with engine.begin() as conn:
+    # Auto-initialize database tables on first launch
+    async with engine.begin() as conn:
+        if db_url.startswith("sqlite"):
             await conn.run_sync(_sync_sqlite_schema)
+        else:
+            await conn.run_sync(Base.metadata.create_all)
     yield
 
 

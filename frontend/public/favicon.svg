@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <linearGradient id="devresolveGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="50%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#8b5cf6" />
+    </linearGradient>
+  </defs>
+  <!-- Background rounded squircle -->
+  <rect width="32" height="32" rx="7.5" fill="url(#devresolveGrad)" />
+  
+  <!-- Subtle inner border for contrast -->
+  <rect x="0.75" y="0.75" width="30.5" height="30.5" rx="6.75" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="1" />
+
+  <!-- Primary Sparkle -->
+  <path d="M16 6.5 C16 11.2 19.8 15 24.5 15 C19.8 15 16 18.8 16 23.5 C16 18.8 12.2 15 7.5 15 C12.2 15 16 11.2 16 6.5 Z" fill="#ffffff" />
+  
+  <!-- Secondary Sparkle (top-right) -->
+  <path d="M24 7 C24 8.6 25.4 9.8 27 9.8 C25.4 9.8 24 11 24 12.6 C24 11 22.6 9.8 21 9.8 C22.6 9.8 24 8.6 24 7 Z" fill="#ffffff" opacity="0.9" />
+  
+  <!-- Accent Sparkle dot (bottom-left) -->
+  <circle cx="9" cy="22" r="1.2" fill="#ffffff" opacity="0.85" />
+</svg>
+

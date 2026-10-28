@@ -549,17 +549,6 @@ ${liveDiff || '# No unified diff generated'}
               <Ticket size={14} className="text-amber-400" />
               <span>Raise a Ticket</span>
             </button>
-            <button
-              onClick={() => setActiveTab('report')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all ${
-                activeTab === 'report'
-                  ? 'bg-accent-blue text-white shadow-md'
-                  : 'bg-dark-800 text-accent-blue border border-accent-blue/30 hover:bg-accent-blue/10'
-              }`}
-            >
-              <FileText size={14} />
-              <span>Incident Report</span>
-            </button>
           </div>
         </div>
 

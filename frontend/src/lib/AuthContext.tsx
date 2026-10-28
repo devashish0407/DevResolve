@@ -7,6 +7,7 @@ interface AuthContextType {
   loading: boolean;
   login: (email: string, password?: string) => Promise<void>;
   signup: (email: string, password?: string, name?: string) => Promise<void>;
+  verifySignupOtp: (email: string, otp: string) => Promise<void>;
   loginWithOAuth: (provider: 'github' | 'google') => Promise<void>;
   logout: () => Promise<void>;
   isDemoMode: boolean;
@@ -14,22 +15,38 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const DEMO_USER: AuthUser = {
-  id: 'usr_demo_1042',
-  email: 'devashish@devresolve.io',
-  displayName: 'Devashish Sharma',
-  avatarUrl: undefined,
-};
-
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AuthUser | null>(() => {
     const saved = localStorage.getItem('devresolve_user');
-    return saved ? JSON.parse(saved) : DEMO_USER;
+    return saved ? JSON.parse(saved) : null;
   });
   const [loading, setLoading] = useState<boolean>(false);
   const isDemoMode = !import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY;
 
   useEffect(() => {
+    // Check if returning from real Google or GitHub OAuth redirect with token
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    if (token) {
+      api.setToken(token);
+      // Remove token from address bar cleanly
+      window.history.replaceState({}, document.title, window.location.pathname);
+      api.getProfile().then((profile) => {
+        if (profile) {
+          const authUser: AuthUser = {
+            id: profile.id || profile.auth_id,
+            email: profile.email,
+            displayName: profile.display_name,
+            avatarUrl: profile.avatar_url,
+          };
+          setUser(authUser);
+          localStorage.setItem('devresolve_user', JSON.stringify(authUser));
+        }
+      }).catch((err) => {
+        console.warn('Could not load profile from OAuth token:', err);
+      });
+    }
+
     if (!isDemoMode && supabase) {
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (session?.user) {
@@ -86,6 +103,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           email,
           displayName: email.split('@')[0] || 'Devashish Sharma',
         };
+        api.setToken(fallback.id);
         setUser(fallback);
         localStorage.setItem('devresolve_user', JSON.stringify(fallback));
         return;
@@ -115,6 +133,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           email,
           displayName: name || email.split('@')[0],
         };
+        api.setToken(fallback.id);
         setUser(fallback);
         localStorage.setItem('devresolve_user', JSON.stringify(fallback));
         return;
@@ -125,9 +144,27 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const verifySignupOtp = async (email: string, otp: string) => {
+    setLoading(true);
+    try {
+      const res = await api.verifySignupOtp(email, otp);
+      const authUser: AuthUser = {
+        id: res.user.id || res.user.auth_id,
+        email: res.user.email,
+        displayName: res.user.display_name || email.split('@')[0],
+        avatarUrl: res.user.avatar_url,
+      };
+      setUser(authUser);
+      localStorage.setItem('devresolve_user', JSON.stringify(authUser));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const loginWithOAuth = async (provider: 'github' | 'google') => {
     setLoading(true);
     try {
+      // 1. Check if Supabase client is configured with live credentials
       if (!isDemoMode && supabase) {
         const { error } = await supabase.auth.signInWithOAuth({
           provider,
@@ -135,29 +172,29 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             redirectTo: `${window.location.origin}/app`,
           },
         });
-        if (!error) return;
-        console.warn('Supabase OAuth error, falling back to direct auth:', error);
+        if (!error) return; // Browser redirected to Google / GitHub
+        console.warn('Supabase OAuth error, falling back to direct OAuth:', error);
       }
 
-      const res = await api.oauthLogin(provider);
-      const authUser: AuthUser = {
-        id: res.user.id || res.user.auth_id,
-        email: res.user.email,
-        displayName: res.user.display_name || `${provider === 'github' ? 'GitHub' : 'Google'} Developer`,
-        avatarUrl: res.user.avatar_url,
-      };
-      setUser(authUser);
-      localStorage.setItem('devresolve_user', JSON.stringify(authUser));
-    } catch (err: any) {
-      // In demo mode or if backend unreachable, establish developer session
-      const fallback: AuthUser = {
-        id: `usr_${provider}_${Date.now()}`,
-        email: `${provider}.developer@devresolve.io`,
-        displayName: `${provider === 'github' ? 'GitHub' : 'Google'} Developer`,
-        avatarUrl: provider === 'github' ? 'https://github.com/github.png' : undefined,
-      };
-      setUser(fallback);
-      localStorage.setItem('devresolve_user', JSON.stringify(fallback));
+      // 2. Check if backend has direct Google / GitHub OAuth credentials configured
+      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+      const statusRes = await fetch(`${apiBase}/auth/oauth/providers`).catch(() => null);
+      if (statusRes && statusRes.ok) {
+        const providers = await statusRes.json().catch(() => ({}));
+        if (providers[provider]) {
+          // Redirect browser directly to Google Accounts or GitHub OAuth consent screen
+          window.location.href = `${apiBase}/auth/oauth/${provider}`;
+          return;
+        }
+      }
+
+      // 3. Credentials are not configured yet
+      throw new Error(
+        `Real ${provider === 'google' ? 'Google' : 'GitHub'} OAuth is not configured on the server yet. ` +
+        `To authenticate with real ${provider === 'google' ? 'Gmail' : 'GitHub'} accounts, ` +
+        `please set ${provider === 'google' ? 'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET' : 'GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET'} ` +
+        `in backend .env (or configure Supabase Auth providers). Direct bypass is disabled to preserve authentication security.`
+      );
     } finally {
       setLoading(false);
     }
@@ -179,7 +216,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, signup, loginWithOAuth, logout, isDemoMode }}>
+    <AuthContext.Provider value={{ user, loading, login, signup, verifySignupOtp, loginWithOAuth, logout, isDemoMode }}>
       {children}
     </AuthContext.Provider>
   );

@@ -6,7 +6,7 @@ and organization tenant scoping.
 
 import uuid
 from typing import Optional, Tuple
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import User, Organization, OrganizationMember
@@ -98,18 +98,19 @@ class AuthService:
         """Register a new user with password hash and provision workspace."""
         from app.core.security import hash_password
 
-        stmt = select(User).where(User.email == email, User.is_deleted == False)
+        clean_email = email.strip().lower()
+        stmt = select(User).where(func.lower(User.email) == clean_email)
         result = await self.db.execute(stmt)
-        if result.scalar_one_or_none():
-            raise ValueError("A user with this email address already exists")
+        if result.scalars().first():
+            raise ValueError("An account with this email address already exists. Please sign in instead.")
 
         auth_id = f"usr_{uuid.uuid4().hex[:12]}"
         pwd_hash = hash_password(password)
-        name = display_name or email.split("@")[0]
+        name = display_name or clean_email.split("@")[0]
 
         user = User(
             auth_id=auth_id,
-            email=email,
+            email=clean_email,
             display_name=name,
             preferences={"password_hash": pwd_hash, "theme": "dark", "notifications": True},
         )
@@ -128,9 +129,10 @@ class AuthService:
         """Validate user credentials against stored hash."""
         from app.core.security import hash_password, verify_password
 
-        stmt = select(User).where(User.email == email, User.is_deleted == False)
+        clean_email = email.strip().lower()
+        stmt = select(User).where(func.lower(User.email) == clean_email, User.is_deleted == False)
         result = await self.db.execute(stmt)
-        user = result.scalar_one_or_none()
+        user = result.scalars().first()
 
         if not user:
             # Auto-provision default admin if logging in for the first time

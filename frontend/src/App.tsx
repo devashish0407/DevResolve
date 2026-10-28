@@ -9,7 +9,7 @@ import Dashboard from './pages/Dashboard';
 import ChatPage from './pages/ChatPage';
 import IntegrationsPage from './pages/IntegrationsPage';
 import SettingsPage from './pages/SettingsPage';
-import OnboardingPage from './pages/OnboardingPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 
 function App() {
   return (
@@ -21,7 +21,8 @@ function App() {
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
-            <Route path="/onboarding" element={<OnboardingPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/onboarding" element={<Navigate to="/app" replace />} />
 
             {/* Protected routes — wrapped in dashboard layout with sidebar */}
             <Route path="/app" element={<DashboardLayout />}>

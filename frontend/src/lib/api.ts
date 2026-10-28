@@ -110,6 +110,14 @@ class ApiClient {
     });
 
     if (!response.ok) {
+      if (response.status === 401) {
+        const errorData = await response.json().catch(() => ({ detail: 'Unauthorized' }));
+        const detail = errorData.detail || 'Unauthorized';
+        if (typeof detail === 'string' && (detail.toLowerCase().includes('token') || detail.toLowerCase().includes('expired') || detail.toLowerCase().includes('subject'))) {
+          this.setToken(null);
+        }
+        throw new Error(detail);
+      }
       const errorData = await response.json().catch(() => ({ detail: 'Network error' }));
       throw new Error(errorData.detail || `Request failed with status ${response.status}`);
     }
@@ -136,6 +144,29 @@ class ApiClient {
     return res;
   }
 
+  async requestSignupOtp(email: string, password: string, displayName?: string): Promise<{ status: string; message: string; email: string }> {
+    return this.request<{ status: string; message: string; email: string }>('/auth/signup/request-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, display_name: displayName }),
+    });
+  }
+
+  async verifySignupOtp(email: string, otp: string): Promise<{ access_token: string; user: any }> {
+    const res = await this.request<{ access_token: string; user: any }>('/auth/signup/verify-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email, otp }),
+    });
+    this.setToken(res.access_token);
+    return res;
+  }
+
+  async resendSignupOtp(email: string): Promise<{ status: string; message: string; email: string }> {
+    return this.request<{ status: string; message: string; email: string }>('/auth/signup/resend-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
   async oauthLogin(provider: 'github' | 'google', email?: string, displayName?: string): Promise<{ access_token: string; user: any }> {
     const res = await this.request<{ access_token: string; user: any }>('/auth/oauth', {
       method: 'POST',
@@ -143,6 +174,24 @@ class ApiClient {
     });
     this.setToken(res.access_token);
     return res;
+  }
+
+  async forgotPassword(email: string): Promise<{ status: string; message: string }> {
+    return this.request<{ status: string; message: string }>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  async verifyResetToken(token: string): Promise<{ valid: boolean; email?: string }> {
+    return this.request<{ valid: boolean; email?: string }>(`/auth/verify-reset-token?token=${encodeURIComponent(token)}`);
+  }
+
+  async resetPassword(token: string, newPassword: string): Promise<{ status: string; message: string }> {
+    return this.request<{ status: string; message: string }>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, new_password: newPassword }),
+    });
   }
 
   async getProfile(): Promise<any> {

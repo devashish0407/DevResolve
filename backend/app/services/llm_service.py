@@ -135,15 +135,31 @@ class LLMService:
         return fallbacks.get(provider, valid_ids[0] if valid_ids else "qwen/qwen3.8-27b")
 
     @classmethod
+    def clean_key(cls, raw_key: Optional[str]) -> str:
+        """Sanitizes raw API keys: removes quotes, whitespace, and 'Bearer ' prefixes."""
+        if not raw_key:
+            return ""
+        key = str(raw_key).strip()
+        # Remove surrounding double or single quotes
+        if (key.startswith('"') and key.endswith('"')) or (key.startswith("'") and key.endswith("'")):
+            key = key[1:-1].strip()
+        # Remove Bearer prefix if present
+        if key.lower().startswith("bearer "):
+            key = key[7:].strip()
+        return key
+
+    @classmethod
     def update_byok_config(cls, provider: str, model: str, api_key: Optional[str] = None):
         """Update runtime BYOK configuration with sanitized model mapping."""
         provider = provider.lower().strip()
         _BYOK_STORE["provider"] = provider
         _BYOK_STORE["model"] = cls.sanitize_model(provider, model)
-        if api_key is not None and api_key.strip():
-            _BYOK_STORE["api_key"] = api_key.strip()
-            _BYOK_STORE["custom_api_key"] = api_key.strip()
-        elif api_key == "":
+        cleaned = cls.clean_key(api_key)
+        if cleaned and "•" not in cleaned and "..." not in cleaned:
+            _BYOK_STORE["api_key"] = cleaned
+            _BYOK_STORE["custom_api_key"] = cleaned
+        else:
+            # Empty or masked key -> Reset to platform default master key
             _BYOK_STORE["custom_api_key"] = None
             _BYOK_STORE["api_key"] = _PLATFORM_DEFAULT_GROQ_KEY
 
@@ -160,7 +176,7 @@ class LLMService:
             if RateLimitManager.is_flagged(prov):
                 continue
             key = cls.get_active_api_key(prov)
-            if key and len(key) > 8 and not key.endswith("..."):
+            if key and len(key) > 8 and not key.endswith("...") and "•" not in key:
                 return prov
         return None
 
@@ -171,7 +187,7 @@ class LLMService:
         Verifies the new key against Groq Cloud before committing.
         Resets token counters and clears any active rate-limit flags.
         """
-        new_key = (new_key or "").strip()
+        new_key = cls.clean_key(new_key)
         if not new_key or len(new_key) < 20 or not new_key.startswith("gsk_"):
             return {
                 "status": "error",
@@ -220,13 +236,17 @@ class LLMService:
     @classmethod
     def get_active_api_key(cls, provider: str) -> str:
         """Returns the active key for the chosen provider."""
-        # Check in-memory store first
-        if _BYOK_STORE.get("provider") == provider and _BYOK_STORE.get("api_key"):
-            key = _BYOK_STORE["api_key"].strip()
-            if key and not key.endswith("..."):
-                return key
+        # 1. Check custom BYOK key if present and valid
+        custom_key = cls.clean_key(_BYOK_STORE.get("custom_api_key"))
+        if _BYOK_STORE.get("provider") == provider and custom_key and "•" not in custom_key and "..." not in custom_key:
+            return custom_key
 
-        # Check env vars
+        # 2. Check in-memory store key
+        stored_key = cls.clean_key(_BYOK_STORE.get("api_key"))
+        if _BYOK_STORE.get("provider") == provider and stored_key and "•" not in stored_key and "..." not in stored_key:
+            return stored_key
+
+        # 3. Check env vars
         if provider == "groq":
             key = getattr(settings, "GROQ_API_KEY", None) or os.getenv("GROQ_API_KEY") or _PLATFORM_DEFAULT_GROQ_KEY
         elif provider == "gemini":
@@ -238,21 +258,34 @@ class LLMService:
         else:
             key = ""
 
-        return key.strip() if key and not key.endswith("...") else ""
+        cleaned = cls.clean_key(key)
+        if cleaned and "•" not in cleaned and "..." not in cleaned:
+            return cleaned
+        if provider == "groq":
+            return _PLATFORM_DEFAULT_GROQ_KEY
+        return ""
 
     async def test_connection(self, provider: str, api_key: str, model: str) -> Dict[str, Any]:
         """Pings the target LLM provider to verify key validity and measure latency."""
         t0 = time.time()
         provider = provider.lower().strip()
-        api_key = (api_key or "").strip()
+        api_key = self.clean_key(api_key)
         model = self.sanitize_model(provider, model)
 
         # Pre-validate key prefixes to prevent confusing errors
-        if "..." in api_key:
+        if "..." in api_key or "•" in api_key:
+            # If masked key was passed, resolve the actual unmasked active key
+            api_key = self.get_active_api_key(provider)
+
+        if not api_key and provider == "groq":
+            api_key = self.get_active_api_key("groq")
+
+        if not api_key:
             return {
                 "status": "error",
-                "message": "It looks like you copied the masked key (containing '...'). Please copy the full unmasked key from your provider console."
+                "message": f"Please provide an API key to test {provider.title()}."
             }
+
         if provider == "gemini" and api_key.startswith("gsk_"):
             return {
                 "status": "error",
@@ -292,9 +325,16 @@ class LLMService:
                             "active_models": active_ids[:6],
                         }
                     elif models_res.status_code == 401:
+                        err_detail = "Invalid Groq API Key (HTTP 401 Unauthorized)."
+                        try:
+                            groq_err = models_res.json().get("error", {})
+                            if groq_err.get("message"):
+                                err_detail = f"Groq Cloud rejected key: {groq_err['message']}"
+                        except Exception:
+                            pass
                         return {
                             "status": "error",
-                            "message": "Invalid Groq API Key (HTTP 401 Unauthorized)."
+                            "message": err_detail,
                         }
                     elif models_res.status_code == 429:
                         analysis = RateLimitManager.classify_error("groq", 429, models_res.text, dict(models_res.headers))
@@ -400,9 +440,12 @@ class LLMService:
         formatted_messages: List[Dict[str, str]],
     ) -> Dict[str, Any]:
         """Low-level API dispatcher for a given provider."""
+        api_key = self.clean_key(api_key)
+        if not api_key or "•" in api_key or "..." in api_key:
+            api_key = self.get_active_api_key(provider)
+
         # 1. Groq Cloud
         if provider == "groq":
-            url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",

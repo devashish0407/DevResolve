@@ -303,6 +303,191 @@ class EmailService:
         }
         return await self.send_ticket_notification(ticket_data)
 
+    def _send_password_reset_sync(self, to_email: str, user_name: str, reset_url: str) -> Dict[str, Any]:
+        """Sends a secure password reset email with formatted HTML & plaintext."""
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = "Reset Your DevResolve Password"
+        msg["From"] = f"{self.from_name} <{self.from_email}>"
+        msg["To"] = to_email
+        msg["Date"] = email.utils.formatdate(localtime=True)
+        msg["Message-ID"] = email.utils.make_msgid(domain="devresolve.io")
+
+        plain_text = (
+            f"Hello {user_name},\n\n"
+            f"We received a request to reset your password for your DevResolve account.\n\n"
+            f"Click the link below or paste it into your browser to choose a new password:\n"
+            f"{reset_url}\n\n"
+            f"This password reset link will expire in 1 hour.\n"
+            f"If you did not request this, please ignore this email. Your account remains secure.\n\n"
+            f"— The DevResolve Team"
+        )
+
+        html_text = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0b0f19; color: #f8fafc; margin: 0; padding: 0; }}
+    .container {{ max-width: 560px; margin: 40px auto; background-color: #111827; border: 1px solid #1f2937; border-radius: 16px; overflow: hidden; }}
+    .header {{ background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); padding: 32px 24px; text-align: center; border-bottom: 1px solid #374151; }}
+    .logo {{ font-size: 24px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px; }}
+    .logo span {{ color: #38bdf8; }}
+    .content {{ padding: 32px 28px; line-height: 1.6; color: #cbd5e1; font-size: 14px; }}
+    .greeting {{ font-size: 16px; font-weight: 600; color: #ffffff; margin-bottom: 16px; }}
+    .btn-container {{ text-align: center; margin: 32px 0; }}
+    .btn {{ display: inline-block; background: linear-gradient(135deg, #38bdf8 0%, #6366f1 100%); color: #ffffff !important; font-weight: 600; font-size: 14px; padding: 14px 32px; border-radius: 10px; text-decoration: none; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); }}
+    .link-box {{ background-color: #0f172a; padding: 12px; border-radius: 8px; border: 1px solid #1e293b; font-family: monospace; font-size: 12px; word-break: break-all; color: #38bdf8; }}
+    .notice {{ font-size: 12px; color: #94a3b8; margin-top: 24px; border-top: 1px solid #1f2937; padding-top: 16px; }}
+    .footer {{ padding: 20px 24px; text-align: center; font-size: 12px; color: #64748b; background-color: #0b0f19; border-top: 1px solid #1f2937; }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="logo">Dev<span>Resolve</span></div>
+      <p style="margin: 6px 0 0; color: #94a3b8; font-size: 13px;">Autonomous AI Incident Engineer</p>
+    </div>
+    <div class="content">
+      <div class="greeting">Hello {user_name},</div>
+      <p>We received a request to reset your password for your DevResolve account.</p>
+      <div class="btn-container">
+        <a href="{reset_url}" class="btn" target="_blank">Reset Your Password</a>
+      </div>
+      <p style="margin-bottom: 8px;">Or copy and paste this link into your browser:</p>
+      <div class="link-box">{reset_url}</div>
+      <div class="notice">
+        <p style="margin: 0 0 6px;">⏱️ <strong>This link is valid for 1 hour.</strong></p>
+        <p style="margin: 0;">If you didn't request a password reset, you can safely ignore this email. Your password will not change until you click the link and set a new one.</p>
+      </div>
+    </div>
+    <div class="footer">
+      &copy; 2026 DevResolve Inc. • Secure Developer Platform
+    </div>
+  </div>
+</body>
+</html>"""
+
+        msg.attach(MIMEText(plain_text, "plain", "utf-8"))
+        msg.attach(MIMEText(html_text, "html", "utf-8"))
+
+        if not self.is_smtp_configured():
+            print(f"[SIMULATED EMAIL] Password reset for {to_email}: {reset_url}")
+            return {"status": "simulated_success", "recipient": to_email}
+
+        try:
+            with smtplib.SMTP(self.host, self.port, timeout=12.0) as server:
+                server.ehlo()
+                if self.use_tls:
+                    server.starttls()
+                    server.ehlo()
+                if self.user and self.password:
+                    clean_pwd = self.password.replace(" ", "").strip()
+                    server.login(self.user.strip(), clean_pwd)
+                server.sendmail(self.from_email, [to_email], msg.as_string())
+            print(f"[LIVE SMTP] Password reset email successfully sent to {to_email}")
+            return {"status": "delivered", "recipient": to_email}
+        except Exception as e:
+            print(f"[SMTP ERROR] Failed to send password reset email to {to_email}: {e}")
+            return {"status": "failed", "error": str(e), "recipient": to_email}
+
+    async def send_password_reset_email(self, to_email: str, user_name: str, reset_url: str) -> Dict[str, Any]:
+        """Asynchronously dispatches the password reset link."""
+        return await asyncio.to_thread(self._send_password_reset_sync, to_email, user_name, reset_url)
+
+    def _send_signup_otp_sync(self, to_email: str, user_name: str, otp_code: str) -> Dict[str, Any]:
+        """Sends a 6-digit email verification OTP."""
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"Your DevResolve Verification Code: {otp_code}"
+        msg["From"] = f"{self.from_name} <{self.from_email}>"
+        msg["To"] = to_email
+        msg["Date"] = email.utils.formatdate(localtime=True)
+        msg["Message-ID"] = email.utils.make_msgid(domain="devresolve.io")
+
+        plain_text = (
+            f"Hello {user_name},\n\n"
+            f"Your DevResolve account verification code is:\n\n"
+            f"{otp_code}\n\n"
+            f"Enter this 6-digit code in the registration window to complete your sign-up.\n"
+            f"This code will expire in 10 minutes.\n\n"
+            f"If you did not initiate this sign-up, you can safely ignore this email.\n\n"
+            f"— The DevResolve Team"
+        )
+
+        formatted_code = " ".join(list(otp_code))
+
+        html_text = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0b0f19; color: #f8fafc; margin: 0; padding: 0; }}
+    .container {{ max-width: 560px; margin: 40px auto; background-color: #111827; border: 1px solid #1f2937; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 40px -15px rgba(0,0,0,0.7); }}
+    .header {{ background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); padding: 32px 24px; text-align: center; border-bottom: 1px solid #374151; }}
+    .logo {{ font-size: 24px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px; }}
+    .logo span {{ color: #38bdf8; }}
+    .content {{ padding: 36px 32px; line-height: 1.6; color: #cbd5e1; font-size: 14px; text-align: center; }}
+    .greeting {{ font-size: 18px; font-weight: 700; color: #ffffff; margin-bottom: 12px; }}
+    .otp-box {{ margin: 24px auto; padding: 18px 28px; background: linear-gradient(180deg, #0f172a 0%, #0b0f19 100%); border: 2px solid #38bdf8; border-radius: 14px; display: inline-block; box-shadow: 0 0 25px rgba(56, 189, 248, 0.2); }}
+    .otp-code {{ font-size: 34px; font-weight: 800; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; color: #38bdf8; letter-spacing: 8px; margin: 0; text-align: center; }}
+    .notice {{ font-size: 12px; color: #94a3b8; margin-top: 28px; border-top: 1px solid #1f2937; padding-top: 18px; text-align: left; }}
+    .footer {{ padding: 20px 24px; text-align: center; font-size: 12px; color: #64748b; background-color: #0b0f19; border-top: 1px solid #1f2937; }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="logo">Dev<span>Resolve</span></div>
+      <p style="margin: 6px 0 0; color: #94a3b8; font-size: 13px;">Autonomous AI Incident Engineer</p>
+    </div>
+    <div class="content">
+      <div class="greeting">Verify Your Email Address</div>
+      <p style="margin: 0; color: #94a3b8;">Welcome to DevResolve, <strong style="color: #f1f5f9;">{user_name}</strong>! Use the verification code below to confirm your email and activate your account:</p>
+      
+      <div class="otp-box">
+        <div class="otp-code">{formatted_code}</div>
+      </div>
+
+      <p style="margin: 0; font-size: 13px; color: #cbd5e1;">Enter this 6-digit verification code in the registration screen.</p>
+
+      <div class="notice">
+        <p style="margin: 0 0 6px;">⏱️ <strong>This code will expire in 10 minutes.</strong></p>
+        <p style="margin: 0;">If you didn't create a DevResolve account, please ignore this email. No account will be created without this verification code.</p>
+      </div>
+    </div>
+    <div class="footer">
+      &copy; 2026 DevResolve Inc. • Secure Developer Platform
+    </div>
+  </div>
+</body>
+</html>"""
+
+        msg.attach(MIMEText(plain_text, "plain", "utf-8"))
+        msg.attach(MIMEText(html_text, "html", "utf-8"))
+
+        if not self.is_smtp_configured():
+            print(f"[SIMULATED EMAIL] Sign-up OTP for {to_email}: {otp_code}")
+            return {"status": "simulated_success", "recipient": to_email, "otp": otp_code}
+
+        try:
+            with smtplib.SMTP(self.host, self.port, timeout=12.0) as server:
+                server.ehlo()
+                if self.use_tls:
+                    server.starttls()
+                    server.ehlo()
+                if self.user and self.password:
+                    clean_pwd = self.password.replace(" ", "").strip()
+                    server.login(self.user.strip(), clean_pwd)
+                server.sendmail(self.from_email, [to_email], msg.as_string())
+            print(f"[LIVE SMTP] Sign-up OTP email successfully sent to {to_email}")
+            return {"status": "delivered", "recipient": to_email}
+        except Exception as e:
+            print(f"[SMTP ERROR] Failed to send OTP email to {to_email}: {e}")
+            return {"status": "failed", "error": str(e), "recipient": to_email}
+
+    async def send_signup_otp_email(self, to_email: str, user_name: str, otp_code: str) -> Dict[str, Any]:
+        """Asynchronously dispatches the registration OTP."""
+        return await asyncio.to_thread(self._send_signup_otp_sync, to_email, user_name, otp_code)
+
 
 def get_dispatched_emails() -> List[Dict[str, Any]]:
     """Accessor for audit logs and tests."""
