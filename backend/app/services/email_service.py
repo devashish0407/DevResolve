@@ -8,6 +8,7 @@ import asyncio
 import email.utils
 import logging
 import smtplib
+import os
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Dict, Any, Optional, List
