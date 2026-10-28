@@ -45,11 +45,16 @@ def _sync_sqlite_schema(conn):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Auto-initialize database tables on first launch
-    async with engine.begin() as conn:
-        if db_url.startswith("sqlite"):
-            await conn.run_sync(_sync_sqlite_schema)
-        else:
-            await conn.run_sync(Base.metadata.create_all)
+    try:
+        async with engine.begin() as conn:
+            if db_url.startswith("sqlite"):
+                await conn.run_sync(_sync_sqlite_schema)
+            else:
+                await conn.run_sync(Base.metadata.create_all)
+        print("[DATABASE] Successfully connected and synchronized database tables.", flush=True)
+    except Exception as e:
+        print(f"[DATABASE STARTUP ERROR] Could not connect to database: {e}", flush=True)
+        print("[DATABASE NOTICE] Server will continue running. Please check your DATABASE_URL credentials and hostname.", flush=True)
     yield
 
 
@@ -102,6 +107,20 @@ def create_app() -> FastAPI:
     app.include_router(rag.router, prefix="/api/rag", tags=["RAG"])
     app.include_router(ai_settings.router, prefix="/api/settings", tags=["Settings & BYOK"])
     app.include_router(tickets.router, prefix="/api/tickets", tags=["Tickets & Support"])
+
+    @app.get("/", tags=["Root"])
+    async def root():
+        return {
+            "service": "DevResolve API Gateway",
+            "status": "online",
+            "version": settings.APP_VERSION,
+            "health": "/api/health",
+            "docs": "/api/docs",
+        }
+
+    @app.get("/health", tags=["Root"])
+    async def root_health():
+        return {"status": "healthy", "service": "DevResolve Backend", "version": settings.APP_VERSION}
 
     return app
 
