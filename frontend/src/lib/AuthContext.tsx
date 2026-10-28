@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { supabase, AuthUser } from './supabase';
-import { api } from './api';
+import { api, API_BASE_URL } from './api';
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -177,13 +177,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       // 2. Check if backend has direct Google / GitHub OAuth credentials configured
-      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-      const statusRes = await fetch(`${apiBase}/auth/oauth/providers`).catch(() => null);
+      const statusRes = await fetch(`${API_BASE_URL}/auth/oauth/providers`).catch(() => null);
       if (statusRes && statusRes.ok) {
         const providers = await statusRes.json().catch(() => ({}));
         if (providers[provider]) {
           // Redirect browser directly to Google Accounts or GitHub OAuth consent screen
-          window.location.href = `${apiBase}/auth/oauth/${provider}`;
+          window.location.href = `${API_BASE_URL}/auth/oauth/${provider}`;
           return;
         }
       }

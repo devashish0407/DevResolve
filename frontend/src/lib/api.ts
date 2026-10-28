@@ -3,7 +3,18 @@
  * Handles HTTP requests, JWT token bearer injection, and SSE stream consumption.
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+function normalizeApiBaseUrl(): string {
+  let url = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api').trim();
+  while (url.endsWith('/')) {
+    url = url.slice(0, -1);
+  }
+  if (!url.endsWith('/api')) {
+    url = `${url}/api`;
+  }
+  return url;
+}
+
+export const API_BASE_URL = normalizeApiBaseUrl();
 
 export interface Project {
   id: string;
