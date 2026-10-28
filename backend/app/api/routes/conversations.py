@@ -46,7 +46,7 @@ async def list_conversations(
             ConversationResponse(
                 id=c.id,
                 project_id=c.project_id,
-                creator_id=c.creator_id,
+                creator_id=c.user_id,
                 title=c.title,
                 status=c.status,
                 severity=c.severity,
@@ -85,7 +85,7 @@ async def create_conversation(
     return ConversationResponse(
         id=conv.id,
         project_id=conv.project_id,
-        creator_id=conv.creator_id,
+        creator_id=conv.user_id,
         title=conv.title,
         status=conv.status,
         severity=conv.severity,
@@ -121,7 +121,7 @@ async def get_conversation(
     return ConversationDetailResponse(
         id=conv.id,
         project_id=conv.project_id,
-        creator_id=conv.creator_id,
+        creator_id=conv.user_id,
         title=conv.title,
         status=conv.status,
         severity=conv.severity,
@@ -133,7 +133,7 @@ async def get_conversation(
             MessageResponse(
                 id=m.id,
                 conversation_id=m.conversation_id,
-                sender_id=m.sender_id,
+                sender_id=None,
                 sender_display_name=m.sender_display_name,
                 role=m.role,
                 content=m.content,
@@ -159,7 +159,7 @@ async def post_message(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Post user message into an existing investigation."""
+    """Post user or assistant message into an existing investigation."""
     auth_service = AuthService(db)
     user, _ = await auth_service.get_or_create_user(
         auth_id=current_user["auth_id"],
@@ -170,11 +170,15 @@ async def post_message(
     # Verify access first
     await conv_service.get_conversation(user_id=user.id, conversation_id=conversation_id)
 
+    msg_role = data.role or "user"
+    sender_name = "DevResolve AI" if msg_role == "assistant" else user.display_name
+    sender_id = None if msg_role == "assistant" else user.id
+
     msg = await conv_service.add_message(
         conversation_id=conversation_id,
-        sender_id=user.id,
-        sender_display_name=user.display_name,
-        role="user",
+        sender_id=sender_id,
+        sender_display_name=sender_name,
+        role=msg_role,
         content=data.content,
         content_type=data.content_type,
         metadata=data.metadata,
@@ -183,7 +187,7 @@ async def post_message(
     return MessageResponse(
         id=msg.id,
         conversation_id=msg.conversation_id,
-        sender_id=msg.sender_id,
+        sender_id=sender_id,
         sender_display_name=msg.sender_display_name,
         role=msg.role,
         content=msg.content,
@@ -192,6 +196,28 @@ async def post_message(
         metadata=msg.extra_metadata,
         created_at=msg.created_at,
     )
+
+
+@router.delete(
+    "/{conversation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete an investigation conversation",
+)
+async def delete_conversation(
+    conversation_id: uuid.UUID,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Soft delete an investigation and exclude it from the active recent chats stack."""
+    auth_service = AuthService(db)
+    user, _ = await auth_service.get_or_create_user(
+        auth_id=current_user["auth_id"],
+        email=current_user.get("email", ""),
+    )
+
+    conv_service = ConversationService(db)
+    await conv_service.delete_conversation(user_id=user.id, conversation_id=conversation_id)
+    return None
 
 
 @router.get("/{conversation_id}/stream", summary="Stream agent investigation events")

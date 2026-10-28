@@ -48,8 +48,9 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.ALLOWED_ORIGINS,
+        allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$",
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_methods=["*"],
         allow_headers=["*"],
         expose_headers=["X-Request-ID", "X-Response-Time"],
     )
@@ -58,6 +59,8 @@ def create_app() -> FastAPI:
     from app.core.middleware import RequestTracingMiddleware
     app.add_middleware(RequestTracingMiddleware)
 
+    from app.api.routes import auth, projects, conversations, health, integrations, notifications, rag, settings as ai_settings, tickets
+
     # ── Routes ────────────────────────────────────────────────
     app.include_router(health.router, prefix="/api", tags=["Health"])
     app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
@@ -65,6 +68,15 @@ def create_app() -> FastAPI:
     app.include_router(
         conversations.router, prefix="/api/conversations", tags=["Conversations"]
     )
+    app.include_router(
+        integrations.router, prefix="/api/integrations", tags=["Integrations & MCP"]
+    )
+    app.include_router(
+        notifications.router, prefix="/api/notifications", tags=["Notifications"]
+    )
+    app.include_router(rag.router, prefix="/api/rag", tags=["RAG"])
+    app.include_router(ai_settings.router, prefix="/api/settings", tags=["Settings & BYOK"])
+    app.include_router(tickets.router, prefix="/api/tickets", tags=["Tickets & Support"])
 
     return app
 

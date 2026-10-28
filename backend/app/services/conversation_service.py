@@ -44,11 +44,54 @@ class ConversationService:
     async def create_conversation(
         self, user_id: uuid.UUID, data: ConversationCreate
     ) -> Conversation:
-        project = await self._verify_project_access(user_id, data.project_id)
+        target_project_id = data.project_id
+        if not target_project_id:
+            org_stmt = select(OrganizationMember.organization_id).where(
+                OrganizationMember.user_id == user_id
+            )
+            org_id = (await self.db.execute(org_stmt)).scalars().first()
+            if not org_id:
+                raise HTTPException(status_code=400, detail="User has no workspace organization")
+
+            proj_name = data.project_name or f"Investigation Workspace ({data.title[:24]})"
+            project = Project(
+                organization_id=org_id,
+                name=proj_name,
+                slug=f"proj-{str(uuid.uuid4())[:8]}",
+                description=f"Workspace for incident investigation: {data.title}",
+                incident_count=0,
+                open_incident_count=0,
+            )
+            self.db.add(project)
+            await self.db.flush()
+            target_project_id = project.id
+        else:
+            try:
+                project = await self._verify_project_access(user_id, target_project_id)
+            except HTTPException:
+                org_stmt = select(OrganizationMember.organization_id).where(
+                    OrganizationMember.user_id == user_id
+                )
+                org_id = (await self.db.execute(org_stmt)).scalars().first()
+                if not org_id:
+                    raise HTTPException(status_code=400, detail="User has no workspace organization")
+
+                proj_name = data.project_name or f"Investigation Workspace ({data.title[:24]})"
+                project = Project(
+                    organization_id=org_id,
+                    name=proj_name,
+                    slug=f"proj-{str(uuid.uuid4())[:8]}",
+                    description=f"Workspace for incident investigation: {data.title}",
+                    incident_count=0,
+                    open_incident_count=0,
+                )
+                self.db.add(project)
+                await self.db.flush()
+                target_project_id = project.id
 
         conv = Conversation(
-            project_id=data.project_id,
-            creator_id=user_id,
+            project_id=target_project_id,
+            user_id=user_id,
             title=data.title,
             status="investigating",
             severity=data.severity,
@@ -67,7 +110,6 @@ class ConversationService:
         if data.initial_message:
             msg = Message(
                 conversation_id=conv.id,
-                sender_id=user_id,
                 sender_display_name="You",
                 role="user",
                 content=data.initial_message,
@@ -150,7 +192,6 @@ class ConversationService:
 
         msg = Message(
             conversation_id=conversation_id,
-            sender_id=sender_id,
             sender_display_name=sender_display_name,
             role=role,
             content=content,
@@ -170,3 +211,8 @@ class ConversationService:
         await self.db.commit()
         await self.db.refresh(msg)
         return msg
+
+    async def delete_conversation(self, user_id: uuid.UUID, conversation_id: uuid.UUID) -> None:
+        conv, _ = await self.get_conversation(user_id, conversation_id)
+        conv.is_deleted = True
+        await self.db.commit()

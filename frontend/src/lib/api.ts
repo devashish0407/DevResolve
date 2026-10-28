@@ -1,6 +1,6 @@
 /**
  * DevResolve Frontend API Client
- * Handles HTTP requests, Supabase JWT bearer injection, and SSE stream consumption.
+ * Handles HTTP requests, JWT token bearer injection, and SSE stream consumption.
  */
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
@@ -40,11 +40,58 @@ export interface Message {
   created_at: string;
 }
 
+export interface Integration {
+  id: string;
+  name: string;
+  category: 'vcs' | 'monitoring' | 'cicd' | 'chat';
+  description: string;
+  status: 'connected' | 'disconnected' | 'syncing';
+  lastSync?: string;
+  iconBg: string;
+}
+
+export interface NotificationItem {
+  id: string;
+  title: string;
+  message: string;
+  type: 'alert' | 'success' | 'info';
+  time: string;
+  read: boolean;
+  actionUrl?: string;
+}
+
+export interface Ticket {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  priority: string;
+  status: string;
+  created_at: string;
+  estimated_resolution: string;
+  assigned_team: string;
+  user_email?: string;
+  metadata?: Record<string, any>;
+}
+
 class ApiClient {
   private token: string | null = null;
 
+  constructor() {
+    this.token = localStorage.getItem('devresolve_token');
+  }
+
   setToken(token: string | null) {
     this.token = token;
+    if (token) {
+      localStorage.setItem('devresolve_token', token);
+    } else {
+      localStorage.removeItem('devresolve_token');
+    }
+  }
+
+  getToken(): string | null {
+    return this.token;
   }
 
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
@@ -70,8 +117,31 @@ class ApiClient {
     return response.json();
   }
 
+  // Auth
+  async login(email: string, password: string):Promise<{ access_token: string; user: any }> {
+    const res = await this.request<{ access_token: string; user: any }>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+    this.setToken(res.access_token);
+    return res;
+  }
+
+  async register(email: string, password: string, displayName?: string): Promise<{ access_token: string; user: any }> {
+    const res = await this.request<{ access_token: string; user: any }>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, display_name: displayName }),
+    });
+    this.setToken(res.access_token);
+    return res;
+  }
+
+  async getProfile(): Promise<any> {
+    return this.request('/auth/me');
+  }
+
   // Health
-  async checkHealth(): Promise<{ status: string; app: string; version: string }> {
+  async checkHealth(): Promise<{ status: string; service: string; version: string }> {
     return this.request('/health');
   }
 
@@ -88,16 +158,27 @@ class ApiClient {
   }
 
   // Conversations
-  async getConversations(projectId?: string): Promise<{ conversations: Conversation[] }> {
+  async getConversations(projectId?: string): Promise<{ conversations: Conversation[]; total: number }> {
     const query = projectId ? `?project_id=${projectId}` : '';
     return this.request(`/conversations${query}`);
   }
 
-  async createConversation(projectId: string, title?: string, initialMessage?: string): Promise<Conversation> {
+  async createConversation(
+    projectId?: string,
+    title?: string,
+    initialMessage?: string,
+    projectName?: string
+  ): Promise<Conversation> {
+    const validProjectId =
+      projectId && projectId !== 'undefined' && projectId !== 'null' && projectId.trim() !== ''
+        ? projectId.trim()
+        : null;
+
     return this.request('/conversations', {
       method: 'POST',
       body: JSON.stringify({
-        project_id: projectId,
+        project_id: validProjectId,
+        project_name: projectName,
         title: title || 'New Incident Investigation',
         initial_message: initialMessage,
       }),
@@ -108,20 +189,228 @@ class ApiClient {
     return this.request(`/conversations/${conversationId}`);
   }
 
-  async postMessage(conversationId: string, content: string): Promise<Message> {
+  async deleteConversation(conversationId: string): Promise<void> {
+    await this.request(`/conversations/${conversationId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async postMessage(
+    conversationId: string,
+    content: string,
+    role: string = 'user',
+    metadata?: any
+  ): Promise<Message> {
     return this.request(`/conversations/${conversationId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ content, content_type: 'text' }),
+      body: JSON.stringify({ content, role, content_type: 'text', metadata }),
     });
+  }
+
+  // Integrations & MCP
+  async getIntegrations(): Promise<Integration[]> {
+    return this.request('/integrations');
+  }
+
+  async connectIntegration(platformId: string, credentials: Record<string, any>): Promise<Integration> {
+    return this.request(`/integrations/${platformId}/connect`, {
+      method: 'POST',
+      body: JSON.stringify(credentials),
+    });
+  }
+
+  async disconnectIntegration(platformId: string): Promise<Integration> {
+    return this.request(`/integrations/${platformId}/disconnect`, {
+      method: 'POST',
+    });
+  }
+
+  async toggleIntegration(platformId: string): Promise<Integration> {
+    return this.request(`/integrations/${platformId}/toggle`, { method: 'POST' });
+  }
+
+  async syncIntegration(platformId: string): Promise<Integration> {
+    return this.request(`/integrations/${platformId}/sync`, { method: 'POST' });
+  }
+
+  async syncAllIntegrations(): Promise<{ status: string; synced_count: number; message: string }> {
+    return this.request('/integrations/sync-all', { method: 'POST' });
+  }
+
+  async executeMcpTool(toolName: string, toolArguments: Record<string, any> = {}): Promise<any> {
+    return this.request('/integrations/mcp/execute', {
+      method: 'POST',
+      body: JSON.stringify({ tool_name: toolName, arguments: toolArguments }),
+    });
+  }
+
+  async getMcpManifest(): Promise<any> {
+    return this.request('/integrations/mcp/manifest');
+  }
+
+  // GitHub MCP Repository Explorer
+  async getGitHubRepos(): Promise<{ user: any; total: number; repos: any[] }> {
+    return this.request('/integrations/github/repos');
+  }
+
+  async getGitHubBranches(repo: string): Promise<{ repo: string; branches: string[] }> {
+    return this.request(`/integrations/github/branches?repo=${encodeURIComponent(repo)}`);
+  }
+
+  async importGitHubProject(
+    repo: string,
+    branch: string = 'main',
+    projectName?: string
+  ): Promise<{
+    status: string;
+    project_id: string;
+    project_name: string;
+    repository: string;
+    branch: string;
+    files_downloaded: number;
+    ast_chunks_indexed: number;
+    total_rag_chunks: number;
+  }> {
+    return this.request('/integrations/github/import-project', {
+      method: 'POST',
+      body: JSON.stringify({ repo, branch, project_name: projectName }),
+    });
+  }
+
+  // AI & BYOK Settings
+  async getAISettings(): Promise<{
+    provider: string;
+    model: string;
+    has_key: boolean;
+    masked_key: string;
+    supported_models: Record<string, Array<{ id: string; name: string; context: string }>>;
+    custom_endpoint: string;
+    active_rate_limit_flags?: Array<{
+      id: string;
+      provider: string;
+      model?: string;
+      status_code: number;
+      error_message: string;
+      retry_after_seconds: number;
+      recommendation: string;
+    }>;
+    is_current_provider_flagged?: boolean;
+  }> {
+    return this.request('/settings/ai');
+  }
+
+  async saveAISettings(
+    provider: string,
+    model: string,
+    apiKey?: string,
+    customEndpoint?: string
+  ): Promise<any> {
+    return this.request('/settings/ai', {
+      method: 'POST',
+      body: JSON.stringify({ provider, model, api_key: apiKey, custom_endpoint: customEndpoint }),
+    });
+  }
+
+  async testAISettings(provider: string, model: string, apiKey?: string): Promise<{
+    status: string;
+    message: string;
+    latency_ms?: number;
+    rate_limit_flag?: any;
+  }> {
+    return this.request('/settings/ai/test', {
+      method: 'POST',
+      body: JSON.stringify({ provider, model, api_key: apiKey }),
+    });
+  }
+
+  async getRateLimitFlags(): Promise<{
+    status: string;
+    has_rate_limit_raised: boolean;
+    flags: Array<{
+      id: string;
+      provider: string;
+      model?: string;
+      status_code: number;
+      error_message: string;
+      retry_after_seconds: number;
+      flagged_at: string;
+      recommendation: string;
+      is_active: boolean;
+    }>;
+  }> {
+    return this.request('/settings/ai/rate-limits');
+  }
+
+  async clearRateLimitFlag(provider: string): Promise<{ status: string; cleared: boolean; message: string }> {
+    return this.request('/settings/ai/rate-limits/clear', {
+      method: 'POST',
+      body: JSON.stringify({ provider }),
+    });
+  }
+
+  // RAG
+  async queryRag(query: string, topK: number = 5): Promise<any> {
+    return this.request('/rag/query', {
+      method: 'POST',
+      body: JSON.stringify({ query, top_k: topK }),
+    });
+  }
+
+  async indexRagFile(filePath: string, content: string): Promise<any> {
+    return this.request('/rag/index', {
+      method: 'POST',
+      body: JSON.stringify({ file_path: filePath, content }),
+    });
+  }
+
+  // Notifications
+  async getNotifications(): Promise<NotificationItem[]> {
+    return this.request('/notifications');
+  }
+
+  async markNotificationRead(id: string): Promise<{ status: string }> {
+    return this.request(`/notifications/${id}/read`, { method: 'POST' });
+  }
+
+  async markAllNotificationsRead(): Promise<{ status: string }> {
+    return this.request('/notifications/read-all', { method: 'POST' });
+  }
+
+  async clearNotifications(): Promise<{ status: string }> {
+    return this.request('/notifications/clear', { method: 'POST' });
+  }
+
+  // Support Tickets
+  async createTicket(ticket: {
+    title: string;
+    description: string;
+    priority?: string;
+    category?: string;
+    metadata?: Record<string, any>;
+  }): Promise<Ticket> {
+    return this.request('/tickets', {
+      method: 'POST',
+      body: JSON.stringify(ticket),
+    });
+  }
+
+  async getTickets(): Promise<Ticket[]> {
+    return this.request('/tickets');
   }
 
   // Stream investigation SSE
   listenInvestigationStream(
     conversationId: string,
-    onEvent: (event: string, data: any) => void,
+    projectName?: string,
+    errorSummary?: string,
+    onEvent?: (event: string, data: any) => void,
     onError?: (err: any) => void
   ): () => void {
-    const url = `${API_BASE_URL}/conversations/${conversationId}/stream`;
+    const params = new URLSearchParams();
+    if (projectName) params.append('project_name', projectName);
+    if (errorSummary) params.append('error_summary', errorSummary);
+
+    const url = `${API_BASE_URL}/conversations/${conversationId}/stream?${params.toString()}`;
     const eventSource = new EventSource(url);
 
     const eventTypes = [
@@ -130,6 +419,7 @@ class ApiClient {
       'hypothesis_ready',
       'patch_generated',
       'test_results',
+      'rate_limit_flag',
       'done',
     ];
 
@@ -137,9 +427,9 @@ class ApiClient {
       eventSource.addEventListener(type, (e: MessageEvent) => {
         try {
           const parsed = JSON.parse(e.data);
-          onEvent(type, parsed);
+          if (onEvent) onEvent(type, parsed);
         } catch {
-          onEvent(type, e.data);
+          if (onEvent) onEvent(type, e.data);
         }
       });
     });

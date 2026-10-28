@@ -5,6 +5,7 @@ AST-aware Code Chunking, Embedding Generation, pgvector Similarity & Full-Text S
 
 import ast
 import re
+import hashlib
 from typing import List, Dict, Any, Optional
 import numpy as np
 
@@ -18,6 +19,7 @@ class CodeChunk:
         start_line: int,
         end_line: int,
         content: str,
+        embedding: Optional[List[float]] = None,
     ):
         self.file_path = file_path
         self.chunk_type = chunk_type
@@ -25,6 +27,7 @@ class CodeChunk:
         self.start_line = start_line
         self.end_line = end_line
         self.content = content
+        self.embedding = embedding
 
 
 class RAGService:
@@ -121,13 +124,18 @@ class RAGService:
     async def generate_embedding(self, text: str) -> List[float]:
         """
         Generate embedding vector (1536-dimensional).
-        Uses OpenAI text-embedding-3-small if key is present,
-        or deterministic normalized pseudo-embedding for local testing.
+        Uses OpenAI text-embedding-3-small if active key is present,
+        or deterministic normalized subword/character hash vector representation.
         """
-        if self.openai_api_key:
+        if (
+            self.openai_api_key
+            and not self.openai_api_key.endswith("...")
+            and not self.openai_api_key.startswith("sk-proj-...")
+            and len(self.openai_api_key) > 20
+        ):
             try:
                 from openai import AsyncOpenAI
-                client = AsyncOpenAI(api_key=self.openai_api_key)
+                client = AsyncOpenAI(api_key=self.openai_api_key, timeout=3.0)
                 response = await client.embeddings.create(
                     model="text-embedding-3-small",
                     input=text[:4000],
@@ -136,22 +144,45 @@ class RAGService:
             except Exception:
                 pass
 
-        # Deterministic offline vector based on character hash distributions
+        # Stable deterministic 1536-dimensional vector using SHA-256 feature hashing
         dim = 1536
         vec = np.zeros(dim, dtype=np.float32)
         words = re.findall(r"\w+", text.lower())
-        for w in words:
-            idx = abs(hash(w)) % dim
-            vec[idx] += 1.0
+        for i, w in enumerate(words):
+            # Word token feature
+            h_val = int(hashlib.sha256(w.encode("utf-8")).hexdigest()[:8], 16)
+            idx = h_val % dim
+            weight = 1.0 + (0.5 if len(w) > 4 else 0.0)
+            vec[idx] += weight
+
+            # Bigram token feature for local phrase sensitivity
+            if i > 0:
+                bi = f"{words[i-1]}_{w}"
+                h_bi = int(hashlib.sha256(bi.encode("utf-8")).hexdigest()[:8], 16)
+                vec[h_bi % dim] += 1.5
+
         norm = np.linalg.norm(vec)
         if norm > 0:
             vec = vec / norm
         return vec.tolist()
 
+    @staticmethod
+    def cosine_similarity(vec_a: List[float], vec_b: List[float]) -> float:
+        """Compute cosine similarity between two 1536-dim embedding vectors."""
+        if not vec_a or not vec_b:
+            return 0.0
+        a = np.array(vec_a, dtype=np.float32)
+        b = np.array(vec_b, dtype=np.float32)
+        norm_a = np.linalg.norm(a)
+        norm_b = np.linalg.norm(b)
+        if norm_a == 0.0 or norm_b == 0.0:
+            return 0.0
+        return float(np.dot(a, b) / (norm_a * norm_b))
+
     def hybrid_score(
-        self, vector_score: float, keyword_score: float, vector_weight: float = 0.7
+        self, vector_score: float, keyword_score: float, vector_weight: float = 0.65
     ) -> float:
         """
-        Combines pgvector cosine similarity with text match BM25/trigram score.
+        Combines semantic vector cosine similarity with lexical BM25/keyword overlap.
         """
         return (vector_weight * vector_score) + ((1.0 - vector_weight) * keyword_score)

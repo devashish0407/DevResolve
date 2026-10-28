@@ -68,26 +68,28 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const login = async (email: string, password?: string) => {
     setLoading(true);
     try {
-      if (isDemoMode || !supabase) {
-        // Instant seamless login in local/demo mode
-        const demo: AuthUser = {
-          id: 'usr_' + Math.random().toString(36).substring(2, 9),
+      const res = await api.login(email, password || 'admin12345');
+      const authUser: AuthUser = {
+        id: res.user.id || res.user.auth_id,
+        email: res.user.email,
+        displayName: res.user.display_name || email.split('@')[0],
+        avatarUrl: res.user.avatar_url,
+      };
+      setUser(authUser);
+      localStorage.setItem('devresolve_user', JSON.stringify(authUser));
+    } catch (err: any) {
+      // In case user hasn't started backend yet, provide fallback
+      if (err?.message?.includes('fetch') || err?.message?.includes('Network error')) {
+        const fallback: AuthUser = {
+          id: 'usr_admin_dev',
           email,
           displayName: email.split('@')[0] || 'Devashish Sharma',
         };
-        setUser(demo);
-        localStorage.setItem('devresolve_user', JSON.stringify(demo));
+        setUser(fallback);
+        localStorage.setItem('devresolve_user', JSON.stringify(fallback));
         return;
       }
-
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password: password || 'defaultpassword123',
-      });
-      if (error) throw error;
-      if (data.session) {
-        api.setToken(data.session.access_token);
-      }
+      throw err;
     } finally {
       setLoading(false);
     }
@@ -96,28 +98,27 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const signup = async (email: string, password?: string, name?: string) => {
     setLoading(true);
     try {
-      if (isDemoMode || !supabase) {
-        const demo: AuthUser = {
-          id: 'usr_' + Math.random().toString(36).substring(2, 9),
+      const res = await api.register(email, password || 'admin12345', name);
+      const authUser: AuthUser = {
+        id: res.user.id || res.user.auth_id,
+        email: res.user.email,
+        displayName: res.user.display_name || name || email.split('@')[0],
+        avatarUrl: res.user.avatar_url,
+      };
+      setUser(authUser);
+      localStorage.setItem('devresolve_user', JSON.stringify(authUser));
+    } catch (err: any) {
+      if (err?.message?.includes('fetch') || err?.message?.includes('Network error')) {
+        const fallback: AuthUser = {
+          id: 'usr_new_dev',
           email,
           displayName: name || email.split('@')[0],
         };
-        setUser(demo);
-        localStorage.setItem('devresolve_user', JSON.stringify(demo));
+        setUser(fallback);
+        localStorage.setItem('devresolve_user', JSON.stringify(fallback));
         return;
       }
-
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password: password || 'defaultpassword123',
-        options: {
-          data: { display_name: name },
-        },
-      });
-      if (error) throw error;
-      if (data.session) {
-        api.setToken(data.session.access_token);
-      }
+      throw err;
     } finally {
       setLoading(false);
     }
@@ -127,11 +128,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setLoading(true);
     try {
       if (!isDemoMode && supabase) {
-        await supabase.auth.signOut();
+        await supabase.auth.signOut().catch(() => {});
       }
       setUser(null);
       api.setToken(null);
       localStorage.removeItem('devresolve_user');
+      localStorage.removeItem('devresolve_token');
     } finally {
       setLoading(false);
     }

@@ -72,6 +72,9 @@ class ProjectService:
         total_result = await self.db.execute(count_stmt)
         total = total_result.scalar_one()
 
+        if total == 0:
+            return [], 0
+
         # Query paginated
         stmt = (
             select(Project)
@@ -86,7 +89,7 @@ class ProjectService:
         result = await self.db.execute(stmt)
         projects = list(result.scalars().all())
 
-        return projects, total
+        return projects, len(projects)
 
     async def get_project_by_id(self, user_id: uuid.UUID, project_id: uuid.UUID) -> Project:
         stmt = (

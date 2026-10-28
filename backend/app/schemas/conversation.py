@@ -5,7 +5,7 @@ Conversation & Message Pydantic Schemas
 import uuid
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class MessageBase(BaseModel):
@@ -14,6 +14,7 @@ class MessageBase(BaseModel):
 
 
 class MessageCreate(MessageBase):
+    role: Optional[str] = "user"
     metadata: Optional[Dict[str, Any]] = None
 
 
@@ -37,8 +38,21 @@ class ConversationBase(BaseModel):
 
 
 class ConversationCreate(ConversationBase):
-    project_id: uuid.UUID
+    project_id: Optional[uuid.UUID] = None
+    project_name: Optional[str] = None
     initial_message: Optional[str] = None
+
+    @field_validator("project_id", mode="before")
+    @classmethod
+    def parse_project_id(cls, v):
+        if not v or v in ("undefined", "null", ""):
+            return None
+        if isinstance(v, uuid.UUID):
+            return v
+        try:
+            return uuid.UUID(str(v))
+        except (ValueError, AttributeError):
+            return None
 
 
 class ConversationResponse(ConversationBase):
