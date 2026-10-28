@@ -5,7 +5,9 @@ Secrets are never exposed — loaded from .env or environment variables.
 """
 
 from pydantic_settings import BaseSettings
-from typing import Optional
+from pydantic import field_validator
+from typing import Optional, Union, Any, List
+import json
 
 
 class Settings(BaseSettings):
@@ -22,7 +24,7 @@ class Settings(BaseSettings):
 
     # ── Server ───────────────────────────────────────────────────
     HOST: str = "0.0.0.0"
-    ALLOWED_ORIGINS: list[str] = [
+    ALLOWED_ORIGINS: Union[list[str], str] = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
@@ -30,6 +32,21 @@ class Settings(BaseSettings):
         "http://localhost:8000",
         "http://127.0.0.1:8000",
     ]
+
+    @field_validator("ALLOWED_ORIGINS", mode="before")
+    @classmethod
+    def parse_allowed_origins(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            v_str = v.strip()
+            if v_str.startswith("[") and v_str.endswith("]"):
+                try:
+                    return json.loads(v_str)
+                except Exception:
+                    pass
+            return [origin.strip() for origin in v_str.split(",") if origin.strip()]
+        elif isinstance(v, (list, tuple, set)):
+            return list(v)
+        return []
 
     # ── Supabase ─────────────────────────────────────────────────
     SUPABASE_URL: str = ""
