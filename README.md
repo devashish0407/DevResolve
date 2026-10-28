@@ -1,14 +1,12 @@
-# ⚡ DevResolve
+# ⚡ DevResolve — Autonomous AI Incident Engineer
 
-> **AI-Powered Incident Investigation Engineer for Developers**  
-> Diagnoses production errors, performs AST-aware code retrieval, formulates root-cause hypotheses, generates unified diff patches, and validates fixes inside isolated Docker sandboxes.
+> **An Agentic AI & Multi-Role Engineering Platform for Autonomous Production Incident Diagnosis, Root-Cause Analysis, Unified Git Patching, and Sandbox Verification.**
 
----
-
-[![CI Pipeline](https://github.com/your-org/devresolve/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/devresolve/actions/workflows/ci.yml)
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688.svg?logo=fastapi)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/Frontend-React%2018%20%2B%20TS-61DAFB.svg?logo=react)](https://react.dev)
+[![Vite](https://img.shields.io/badge/Bundler-Vite%205-646CFF.svg?logo=vite)](https://vitejs.dev)
 [![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL%20%2B%20pgvector-336791.svg?logo=postgresql)](https://github.com/pgvector/pgvector)
+[![Tailwind CSS](https://img.shields.io/badge/Styling-Tailwind%20CSS-38B2AC.svg?logo=tailwind-css)](https://tailwindcss.com)
 [![Docker](https://img.shields.io/badge/Sandbox-Docker%20Isolated-2496ED.svg?logo=docker)](https://www.docker.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -16,78 +14,87 @@
 
 ## 📖 Table of Contents
 
-- [Overview](#-overview)
-- [System Architecture](#-system-architecture)
-- [Investigation Workflow](#-investigation-workflow)
-- [System Design & Database Principles](#-system-design--database-principles)
-- [Tech Stack](#-tech-stack)
-- [Project Structure](#-project-structure)
-- [Getting Started](#-getting-started)
-  - [Prerequisites](#prerequisites)
-  - [Option A: One-Command Docker Compose (Recommended)](#option-a-one-command-docker-compose-recommended)
-  - [Option B: Local Development Setup](#option-b-local-development-setup)
-- [Configuration & Environment Variables](#-configuration--environment-variables)
-- [API Endpoints](#-api-endpoints)
-- [Contributing](#-contributing)
-- [License](#-license)
+1. [Executive Summary & Problem Statement](#-executive-summary--problem-statement)
+2. [Why DevResolve? (Key Value Proposition)](#-why-devresolve-key-value-proposition)
+3. [Agentic AI & Multi-Agent Architecture](#-agentic-ai--multi-agent-architecture)
+4. [The 7-Phase Autonomous Investigation Pipeline](#-the-7-phase-autonomous-investigation-pipeline)
+5. [Universal LLM Gateway & Multi-Provider Architecture](#-universal-llm-gateway--multi-provider-architecture)
+6. [Core System Features & Capabilities](#-core-system-features--capabilities)
+7. [Enterprise Security & Privacy Guardrails](#-enterprise-security--privacy-guardrails)
+8. [Complete System Architecture & Diagrams](#-complete-system-architecture--diagrams)
+9. [Technology Stack](#-technology-stack)
+10. [Cloud Deployment Architecture (Render + Vercel + Supabase)](#-cloud-deployment-architecture)
+11. [Local Development & Quickstart](#-local-development--quickstart)
+12. [Environment Variables Reference](#-environment-variables-reference)
+13. [Dependencies & Libraries](#-dependencies--libraries)
+14. [Operational Precautions & Troubleshooting](#-operational-precautions--troubleshooting)
+15. [License & Acknowledgments](#-license--acknowledgments)
 
 ---
 
-## 🔍 Overview
+## 🎯 Executive Summary & Problem Statement
 
-When a production incident occurs (e.g., 500 error, database connection exhaustion, latency spike, or failing integration test), developers waste hours correlating stack traces, digging through repository commits, and manually writing regression tests.
+### The Problem in Modern Engineering
+When production breaks at 2:00 AM—whether due to an unhandled `HTTP 500`, a PostgreSQL connection pool exhaustion, memory leak, or a broken dependency—on-call developers face severe bottlenecks:
+* **Log Fatigue & Context Fragmentation**: Engineers spend hours jumping between Datadog, Sentry, GitHub commits, and microservice traces trying to locate the line of code that triggered the failure.
+* **Mean Time to Resolution (MTTR) Inflation**: Every minute of downtime costs modern enterprises an average of **\$5,000 to \$9,000**.
+* **AI Hallucination Risk**: Generic AI chatbots (ChatGPT, generic coding assistants) guess solutions without understanding repo context, often suggesting hallucinated functions that introduce new bugs.
+* **Untested Code Patches**: AI-generated code without containerized verification is dangerous to apply directly to mission-critical repositories.
 
-**DevResolve** acts as an autonomous tier-1 and tier-2 incident engineer:
-1. **Evidence Ingestion:** Accepts error logs, Sentry crash reports, or failing unit test traces.
-2. **Hybrid RAG Retrieval:** Parses AST function/class symbols and uses `pgvector` cosine similarity combined with full-text search to locate relevant source files.
-3. **Root Cause Analysis (RCA):** Executes multi-step reasoning with leading LLMs (OpenAI GPT-4o, Anthropic Claude 3.5 Sonnet, or Google Gemini 1.5 Pro).
-4. **Code Patch Generation:** Produces clean, minimal unified git diffs addressing the root cause without side effects.
-5. **Docker Sandbox Validation:** Tests patches inside isolated Linux containers (`--network none`, memory & CPU limits) executing pytest suites to verify fixes before any pull request is opened.
-6. **Automated PR & Reporting:** Generates audit-ready incident reports and opens GitHub Pull Requests with a single click.
+### What is DevResolve?
+**DevResolve** is an autonomous Tier-1 and Tier-2 AI Incident Engineer. It does not simply chat—it has **agency**. It ingests stack traces, queries your codebase using hybrid vector search (RAG) and Abstract Syntax Tree (AST) parsing, diagnoses the architectural root cause, synthesizes a surgical unified git diff, and **executes tests inside an isolated Docker sandbox** to guarantee zero regressions before presenting a verified resolution report.
 
 ---
 
-## 🏗️ System Architecture
+## 💡 Why DevResolve? (Key Value Proposition)
+
+| Traditional Incident Response | Generic AI Chatbots (ChatGPT / Copilot) | DevResolve (Autonomous Incident Engineer) |
+| :--- | :--- | :--- |
+| Manual log digging across 5+ monitoring tabs | Conversational guessing without repository awareness | **Autonomous 7-phase investigation pipeline** |
+| 45–180 minutes average MTTR | Hallucinated code snippets that break build pipelines | **Sub-60-second root cause diagnosis** |
+| Manual patch authoring and testing | No verification or test execution capability | **Surgical git diff patches verified in Docker sandboxes** |
+| Post-mortems written days later | No regression safety guarantees | **Audit-ready incident reports & 1-click PR exports** |
+
+---
+
+## 🤖 Agentic AI & Multi-Agent Architecture
+
+### Is this an Agentic AI Project?
+**Yes.** Unlike passive text-generation tools, DevResolve is an **Agentic AI platform**. It pursues complex technical goals autonomously through:
+1. **Perception**: Scans runtime errors, vector-indexes repositories, and traverses AST symbol trees.
+2. **Tool Execution**: Invokes RAG vector search, MCP (Model Context Protocol) endpoints, GitHub APIs, and Docker sandboxes.
+3. **Reflection & Self-Correction**: Formulates root-cause hypotheses, assesses confidence scores, evaluates diffs against tests, and detects regressions.
+
+### Multi-Agent Model: Deterministic Orchestrated Pipeline
+Rather than relying on unpredictable, conversational multi-agent chat swarms (which frequently hallucinate or loop indefinitely), DevResolve implements a **Hierarchical Orchestrated Multi-Role Agent Architecture** (aligned with Anthropic's *Building Effective Agents* best practices).
 
 ```mermaid
 flowchart TD
-    subgraph Client["Client Layer"]
-        UI["React 18 + TypeScript + Vite SPA<br/>(Tailwind CSS, Dark Mode, Glassmorphism)"]
+    Incident["Production Incident / Error Trace"] --> Orchestrator["Agent Orchestrator (InvestigationService)"]
+    
+    subgraph MultiAgentRoles["Specialized Sub-Agent Roles"]
+        Orchestrator --> Agent1["1. Retrieval Agent<br/>(Hybrid Vector Search & AST Discovery)"]
+        Agent1 --> Agent2["2. Diagnostic & RCA Agent<br/>(Stack Parsing & Root Cause Analysis)"]
+        Agent2 --> Agent3["3. Patch Synthesis Agent<br/>(Minimal Unified Git Diff Generation)"]
+        Agent3 --> Agent4["4. Sandbox Verification Agent<br/>(Docker Execution & Test Runner)"]
+        Agent4 --> Agent5["5. Incident Scribe Agent<br/>(Post-Mortem & GitHub PR Exporter)"]
     end
-
-    subgraph Gateway["API Gateway Layer"]
-        API["FastAPI Backend<br/>(JWT Bearer, Request Tracing, CORS, Audit Logging)"]
-    end
-
-    subgraph Storage["Persistence & Search Layer"]
-        PG[("PostgreSQL 16 + pgvector<br/>(3NF Normalization + RLS + Triggers)")]
-    end
-
-    subgraph Agent["AI Agent Pipeline"]
-        STM["7-Phase Investigation State Machine<br/>(Retrieve ➔ Analyze ➔ Inspect ➔ Hypothesize ➔ Fix ➔ Test ➔ Report)"]
-        RAG["AST Code Chunking + Hybrid Embeddings"]
-        LLM["Inference Engines<br/>(GPT-4o / Claude 3.5 / Gemini Pro)"]
-    end
-
-    subgraph Sandbox["Test Execution Sandbox"]
-        DOCKER["Docker Micro-Containers<br/>(--network none, 1024MB RAM, pytest)"]
-    end
-
-    UI <-->|"REST APIs & SSE Streams"| API
-    API <-->|"Async Sessions (asyncpg)"| PG
-    API -->|"Dispatches Investigation"| STM
-    STM <-->|"Semantic Search"| RAG
-    RAG <-->|"pgvector Similarity"| PG
-    STM <-->|"Diagnostic Reasoning"| LLM
-    STM -->|"Run Verification Suite"| DOCKER
-    DOCKER -->|"Validation Report & Diff"| STM
+    
+    Agent5 --> Output["Verified Pull Request & Post-Mortem Report"]
 ```
+
+#### The 5 Specialized Sub-Agent Roles:
+1. **Retrieval Agent** ([rag_service.py](file:///d:/project/DevResolve/backend/app/services/rag_service.py)): Generates 1536-dimensional embeddings, scans indexed codebase chunks, and expands queries contextually across conversation memory.
+2. **Diagnostic & RCA Agent** ([investigation_service.py](file:///d:/project/DevResolve/backend/app/services/investigation_service.py)): Resolves call hierarchies, unhandled error cascade boundaries, and computes a confidence score for the defect.
+3. **Patch Synthesis Agent**: Formulates production-grade, minimal unified diffs (`.diff`) that alter only the broken logic without side-effects.
+4. **Sandbox Verification Agent** ([sandbox_service.py](file:///d:/project/DevResolve/backend/app/services/sandbox_service.py)): Applies patches into isolated, network-disabled micro-containers (`--network none`) and runs test suites (`pytest`, `npm test`).
+5. **Incident Scribe Agent**: Compiles executive summaries, affected microservice boundaries, SLA impacts, and GitHub-ready PR payloads.
 
 ---
 
-## ⚡ Investigation Workflow
+## ⚡ The 7-Phase Autonomous Investigation Pipeline
 
-The agent workflow executes a non-blocking 7-phase state machine that streams real-time Server-Sent Events (SSE) to the frontend:
+When an incident report or crash trace is submitted, the engine executes a non-blocking 7-phase state machine that streams real-time Server-Sent Events (SSE) to the frontend:
 
 ```
 [1. RETRIEVE]    Query pgvector embeddings & AST symbols for error signatures
@@ -98,226 +105,359 @@ The agent workflow executes a non-blocking 7-phase state machine that streams re
       │
 [4. HYPOTHESIZE] Formulate high-confidence architectural / concurrency root causes
       │
-[5. FIX]         Generate unified git diff patch addressing the failure
+[5. FIX]         Synthesize surgical, minimal unified git diff patch
       │
-[6. TEST]        Spin up isolated Docker container (--network none) & run pytest
+[6. TEST]        Execute patch inside isolated Docker sandbox (pytest / npm test)
       │
-[7. REPORT]      Emit verified RCA report, test proofs, and one-click GitHub PR
+[7. REPORT]      Stream incident report, confidence metrics, and export PR
+```
+
+1. **Phase 1: Retrieve**: Hybrid search combining vector cosine similarity with lexical keyword overlap over indexed source files and documentation.
+2. **Phase 2: Analyze**: Extracts failing stack frames, microservice boundaries, and unhandled exceptions.
+3. **Phase 3: Inspect**: Reads AST trees (Python / TypeScript) to inspect variable states, unclosed streams, or missing boundary checks.
+4. **Phase 4: Hypothesize**: Produces a diagnosis (e.g. unclosed DB cursor, JWT expiration mismatch, or unhandled null pointer).
+5. **Phase 5: Fix**: Generates a surgical git unified diff patch addressing the exact fault lines.
+6. **Phase 6: Test**: Applies the patch inside a Docker container with strict CPU/memory limits and zero network access (`--network none`).
+7. **Phase 7: Report**: Generates post-mortems with pass/fail test counts and GitHub export options.
+
+---
+
+## 🌐 Universal LLM Gateway & Multi-Provider Architecture
+
+DevResolve includes a native, unified **LLM Gateway** ([llm_service.py](file:///d:/project/DevResolve/backend/app/services/llm_service.py)) that abstracts multiple AI reasoning providers behind a single resilient API:
+
+```mermaid
+flowchart LR
+    Orchestrator["Agent Pipeline"] --> Gateway["Universal LLM Gateway"]
+    Gateway -->|Primary (Ultra-Fast)| Groq["Groq Cloud<br/>(Qwen 3.8 27B / Llama 3.3 70B)"]
+    Gateway -->|Automated Fallback| Gemini["Google Gemini<br/>(1.5 Flash / 2.0 Flash)"]
+    Gateway -->|Enterprise Tier| OpenAI["OpenAI<br/>(GPT-4o / GPT-4o-mini)"]
+    Gateway -->|Complex Reasoning| Anthropic["Anthropic<br/>(Claude 3.5 Sonnet)"]
+```
+
+### Key Gateway Capabilities:
+* **Automated Provider Failover**: If the primary provider (e.g. Groq) encounters cloud traffic surges, rate limits (HTTP 429), or service degradation, DevResolve automatically and transparently reroutes the prompt to a secondary provider (e.g. Google Gemini) without crashing the user session.
+* **Dynamic BYOK (Bring Your Own Key)**: Developers and teams can configure personal Groq, Gemini, OpenAI, or Anthropic keys directly in the frontend UI without restarting backend containers.
+* **Token Budget & Quota Tracking**: Enforces complimentary 5,000-token free-tier budgets per user, monitoring platform master key headroom.
+* **Alert Cooldown System**: Alerts administrators of platform quota exhaustion via automated email, with a 15-minute cooldown to prevent inbox flooding.
+
+---
+
+## ✨ Core System Features & Capabilities
+
+### 1. Incident Diagnosis & Chat Workspace
+* **Context-Aware Streaming**: Natural real-time SSE streaming for both conversational technical Q&A and 7-phase incident investigations.
+* **AST Symbol Resolution**: Understands line-level queries (e.g., *"What is happening on line 5 of Lexer.test.jsx?"*).
+* **Code Diff Viewer**: Interactive, color-coded unified diff viewer displaying deletions (red) and insertions (green).
+
+### 2. Multi-Channel Authentication & Re-Verification
+* **Email & Password Authentication**: Case-insensitive, whitespace-trimmed email handling with duplicate account protection.
+* **Dynamic Password Strength Meter**: Real-time multi-segment visual progress bar (WEAK / FAIR / STRONG) and 4 interactive rule pills:
+  * `6+ characters`
+  * `1 uppercase (A-Z)`
+  * `1 number (0-9)`
+  * `1 symbol ($#@&*!)`
+* **Signup Email OTP Re-Verification**: 6-digit OTP dispatched to user's Gmail via SMTP with a 10-minute validity window. Features 6-digit auto-advancing inputs, paste support, a 60-second resend cooldown timer, and an email-edit toggle.
+* **Forgot Password Workflow**: Time-limited cryptographic reset links dispatched via Gmail SMTP with dedicated `/reset-password` token verification.
+* **Direct Google & GitHub OAuth 2.0**: Native OAuth consent flows with automatic user provisioning.
+
+### 3. Modern Dark-Mode UI / UX
+* **Glassmorphic Aesthetic**: Designed with a sleek `#0b0f19` dark terminal theme, radial background glows, and responsive layouts.
+* **Dynamic Custom Favicon & Branding**: Branded purple-blue gradient squircle with a luminous 4-point resolution star.
+
+---
+
+## 🛡️ Enterprise Security & Privacy Guardrails
+
+Security is baked into every architectural layer:
+
+1. **Cryptographic Password Hashing**: Utilizes **PBKDF2-SHA256** with unique 16-byte random salts and 100,000 iterations via [security.py](file:///d:/project/DevResolve/backend/app/core/security.py). Plaintext passwords are never stored.
+2. **Encrypted Secret Storage**: User BYOK API keys are encrypted at rest using **Fernet (AES-128-CBC with HMAC-SHA256 authentication)**.
+3. **Stateless JWT Authorization**: HS256 signed JSON Web Tokens carrying strict expiration (`exp`) and audience (`aud: authenticated`) claims.
+4. **Tenant Isolation**: Strict organization-scoped row-level filtering preventing cross-tenant data leakage.
+5. **Air-Gapped Docker Sandboxing**: All test executions run in isolated containers with `--network none`, strict RAM limits (`512MB-1024MB`), and 60-second timeouts.
+6. **Input Sanitization**: Pydantic v2 validation models on all request payloads.
+
+---
+
+## 🏛️ Complete System Architecture & Diagrams
+
+```mermaid
+flowchart TD
+    subgraph ClientLayer["Frontend Client (Vercel)"]
+        UI["React 18 + TypeScript + Vite SPA"]
+        AuthContext["Auth Context (JWT + LocalStorage)"]
+        SSEHook["SSE Stream Consumer"]
+    end
+
+    subgraph APILayer["API Gateway (Render Web Service)"]
+        FastAPI["FastAPI Application (app.main:app)"]
+        CORS["CORS Middleware (Vercel Origin)"]
+        AuthRouter["/api/auth (Login, Register, OTP, Reset)"]
+        ChatRouter["/api/conversations (Investigate SSE)"]
+        RAGRouter["/api/rag (Index & Search)"]
+    end
+
+    subgraph StorageLayer["Data & Persistence (Supabase)"]
+        Postgres[("PostgreSQL 16 Engine")]
+        PGVector["pgvector Extension (1536-dim embeddings)"]
+    end
+
+    subgraph ExternalServices["External Infrastructure"]
+        Gmail["Google Gmail SMTP (Port 587 STARTTLS)"]
+        LLMs["AI Providers (Groq / Gemini / OpenAI / Anthropic)"]
+    end
+
+    UI <-->|"REST APIs & SSE Streams"| FastAPI
+    FastAPI <-->|"asyncpg Sessions"| Postgres
+    Postgres <--> PGVector
+    AuthRouter -->|"Dispatches OTPs & Resets"| Gmail
+    ChatRouter -->|"Queries Reasoning"| LLMs
 ```
 
 ---
 
-## 🛡️ System Design & Database Principles
-
-### 1. 3NF Normalization
-Core entities (`users`, `organizations`, `projects`, `conversations`, `messages`, `api_keys`) are strictly normalized to Third Normal Form (3NF) to eliminate data redundancy and anomalies:
-- Junction tables (`organization_members`) manage M:N tenancy.
-- Immutable UUIDv4 primary keys protect against Insecure Direct Object Reference (IDOR) attacks.
-
-### 2. Controlled Denormalization
-For read-intensive dashboard and investigation views, specific fields are denormalized and maintained synchronously via high-performance PostgreSQL triggers:
-- `projects.incident_count` and `projects.last_activity_at`
-- `conversations.message_count` and `conversations.last_message_at`
-- `messages.sender_display_name` (eliminates joins on chat stream rendering)
-
-### 3. Row-Level Security (RLS)
-PostgreSQL Row-Level Security is enabled across all project and conversation tables:
-```sql
-ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
-CREATE POLICY tenant_project_isolation ON projects
-    FOR ALL
-    USING (organization_id IN (
-        SELECT organization_id FROM organization_members
-        WHERE user_id = auth.uid()
-    ));
-```
-
-### 4. Sandbox Security & Egress Isolation
-Code patches are executed with extreme caution:
-- `--network none`: Blocks outbound network egress to prevent credential or data exfiltration.
-- `--memory 1024m` & `--cpus 1.0`: Prevents Denial-of-Service and memory starvation of the host.
-- Read-only root filesystem mounts.
-
----
-
-## 💻 Tech Stack
+## 💻 Technology Stack
 
 ### Frontend
-- **Framework:** React 18 + TypeScript + Vite
-- **Styling:** Vanilla Tailwind CSS with custom glassmorphism design system
-- **Routing:** React Router v7
-- **Icons:** Lucide React + Bespoke responsive SVG components
-- **Resilience:** React `ErrorBoundary` with instant recovery
+* **Core**: React 18, TypeScript, Vite 5
+* **Routing**: React Router v6 (SPA with `vercel.json` rewrites)
+* **Styling**: Tailwind CSS, PostCSS, Lucide Icons
+* **State & Networking**: Custom AuthProvider, Native Fetch, EventSource (SSE streaming)
 
 ### Backend
-- **Framework:** Python 3.10 + FastAPI
-- **ORM & Driver:** SQLAlchemy 2.0 (Async) + `asyncpg`
-- **Database Migrations:** Alembic with pgvector and trigger definitions
-- **Security:** PyJWT / `python-jose`, cryptography `Fernet` AES-256 for API keys
-- **AI / RAG:** AST parser, pgvector hybrid search, Server-Sent Events (SSE)
+* **Core**: Python 3.11, FastAPI 0.104, Uvicorn (ASGI)
+* **Settings & Models**: Pydantic v2, Pydantic-Settings
+* **Database Driver & ORM**: SQLAlchemy 2.0 (Async), `asyncpg` (PostgreSQL), `aiosqlite` (local fallback)
+* **Vectors & Embeddings**: `pgvector`, NumPy, TikToken
+* **Security & Crypto**: `python-jose`, `cryptography` (Fernet), `hashlib`, `secrets`
+* **Mail Protocol**: `smtplib` with STARTTLS, `email.mime`
 
-### Infrastructure & Sandboxing
-- **Database:** PostgreSQL 16 with `pgvector`, `uuid-ossp`, and `pg_trgm`
-- **Orchestration:** Docker Compose
-- **Web Server:** Nginx (SPA reverse proxy with unbuffered SSE streaming)
-- **CI/CD:** GitHub Actions
-
----
-
-## 📁 Project Structure
-
-```
-DevResolve/
-├── .github/
-│   └── workflows/
-│       └── ci.yml               # GitHub Actions CI workflow
-├── backend/
-│   ├── alembic/                 # Database migrations (RLS, pgvector, triggers)
-│   ├── app/
-│   │   ├── api/
-│   │   │   └── routes/          # Auth, Projects, Conversations, Health routes
-│   │   ├── core/
-│   │   │   ├── config.py        # Pydantic BaseSettings
-│   │   │   ├── middleware.py    # Request ID tracing & audit logging
-│   │   │   └── security.py      # JWT validation & Fernet secret encryption
-│   │   ├── db/
-│   │   │   └── session.py       # Async SQLAlchemy engine with pool pre-ping
-│   │   ├── models/
-│   │   │   └── models.py        # 3NF models, soft-delete, audit mixins
-│   │   ├── schemas/             # Pydantic v2 schemas
-│   │   └── services/            # Auth, Project, Conversation, RAG, Agent, Sandbox
-│   ├── Dockerfile               # Python 3.10 production container
-│   └── requirements.txt         # Pinned backend dependencies
-├── frontend/
-│   ├── src/
-│   │   ├── components/          # DashboardLayout, ErrorBoundary, icons
-│   │   ├── lib/                 # API client, Supabase config
-│   │   ├── pages/
-│   │   │   ├── LandingPage.tsx  # Hero with terminal demo & CTA
-│   │   │   ├── LoginPage.tsx    # Sign in with OAuth
-│   │   │   ├── SignupPage.tsx   # Sign up with validation
-│   │   │   ├── OnboardingPage.tsx# 4-step setup wizard
-│   │   │   ├── Dashboard.tsx    # Project cards & stats
-│   │   │   ├── ChatPage.tsx     # Split-view investigation & evidence tabs
-│   │   │   ├── IntegrationsPage.tsx# GitHub, Sentry, Datadog connectors
-│   │   │   ├── ReportsPage.tsx  # RCA logs, MTTR metrics, patch diff previews
-│   │   │   └── SettingsPage.tsx # AI models, sandbox limits, API keys
-│   │   ├── App.tsx              # Application router
-│   │   └── index.css            # Custom CSS design system & tokens
-│   ├── Dockerfile               # Multi-stage Nginx production container
-│   ├── nginx.conf               # SPA routing & API reverse proxy
-│   └── package.json
-├── docker-compose.yml           # Full-stack Docker orchestration
-├── .env.example                 # Documented configuration variables
-├── .gitignore                   # Multi-language git ignore
-└── README.md                    # Project documentation
-```
+### Cloud Infrastructure
+* **Frontend**: Vercel Global Edge Network
+* **Backend**: Render Linux Web Service
+* **Database**: Supabase Managed PostgreSQL + pgvector
+* **Mail Server**: Google Gmail SMTP
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Cloud Deployment Architecture
+
+Deploying DevResolve to production takes three clean phases:
+
+```mermaid
+flowchart LR
+    VercelDeploy["1. Deploy Frontend<br/>(Vercel)"] --> RenderDeploy["2. Deploy Backend<br/>(Render)"]
+    RenderDeploy --> SupabaseDeploy["3. Connect Database<br/>(Supabase)"]
+```
+
+### Phase 1: Database Setup (Supabase)
+1. Create a project at [supabase.com](https://supabase.com).
+2. Open **SQL Editor** and run:
+   ```sql
+   CREATE EXTENSION IF NOT EXISTS vector;
+   ```
+3. Click **Connect** in the top bar $\rightarrow$ **Connection Pooling** $\rightarrow$ copy the **URI**:
+   ```text
+   postgresql://postgres.[REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres
+   ```
+
+### Phase 2: Backend Setup (Render)
+1. Push your repository to GitHub.
+2. In [render.com](https://render.com), click **New +** $\rightarrow$ **Web Service** $\rightarrow$ connect your repo.
+3. Configure the settings:
+   * **Root Directory**: `backend`
+   * **Runtime**: `Python 3`
+   * **Build Command**: `pip install -r requirements.txt`
+   * **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+4. Add the required Environment Variables (see [Environment Variables Reference](#-environment-variables-reference)).
+5. Click **Create Web Service**.
+
+### Phase 3: Frontend Setup (Vercel)
+1. In [vercel.com](https://vercel.com), click **Add New...** $\rightarrow$ **Project** $\rightarrow$ import your repo.
+2. Configure project settings:
+   * **Framework Preset**: `Vite`
+   * **Root Directory**: `frontend`
+3. Add Environment Variable:
+   * `VITE_API_URL`: `https://your-backend.onrender.com/api`
+4. Click **Deploy**.
+
+---
+
+## 🛠️ Local Development & Quickstart
 
 ### Prerequisites
-- [Docker](https://docs.docker.com/get-docker/) & Docker Compose
-- *Or for local development:* Node.js 20+, Python 3.10+, PostgreSQL 16 with pgvector
+* **Python**: 3.10 or 3.11 installed (`python --version`)
+* **Node.js**: v18+ and `npm` installed (`node --version` and `npm --version`)
+* **Git**: Installed (`git --version`)
+* *(Optional)* **Docker**: For running sandbox execution containers locally
 
 ---
 
-### Option A: One-Command Docker Compose (Recommended)
+### Step 1: Start the Backend (FastAPI)
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/your-org/devresolve.git
-   cd devresolve
-   ```
+Open your terminal and run:
 
-2. **Copy environment variables:**
-   ```bash
-   cp .env.example .env
-   ```
-
-3. **Start the complete stack:**
-   ```bash
-   docker compose up --build -d
-   ```
-
-4. **Access the application:**
-   - **Frontend UI:** [http://localhost](http://localhost) (or `http://localhost:5173` if running dev server)
-   - **FastAPI Documentation:** [http://localhost:8000/api/docs](http://localhost:8000/api/docs)
-   - **PostgreSQL Database:** `localhost:5432` (`devresolve` database)
-
----
-
-### Option B: Local Development Setup
-
-#### 1. Backend Setup
 ```bash
+# 1. Navigate to the backend directory
 cd backend
+
+# 2. Create a Python virtual environment (if not already created)
 python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# 3. Activate the virtual environment
+# On Windows (PowerShell):
+.\.venv\Scripts\Activate.ps1
+# On Windows (Command Prompt):
+.\.venv\Scripts\activate.bat
+# On Linux / macOS:
+source .venv/bin/activate
+
+# 4. Install all required backend dependencies
 pip install -r requirements.txt
 
-# Run database migrations
-alembic upgrade head
-
-# Start FastAPI dev server
-uvicorn app.main:app --reload --port 8000
+# 5. Start the backend development server
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-#### 2. Frontend Setup
+* **Live Backend API**: `http://localhost:8000`
+* **Health Check**: `http://localhost:8000/api/health`
+* **Interactive Swagger API Documentation**: `http://localhost:8000/api/docs`
+
+---
+
+### Step 2: Start the Frontend (React + Vite)
+
+Open a **second terminal window** and run:
+
 ```bash
+# 1. Navigate to the frontend directory
 cd frontend
+
+# 2. Install all required npm packages
 npm install
+
+# 3. Start the Vite local development server
 npm run dev
 ```
-Open [http://localhost:5173](http://localhost:5173) in your browser.
+
+* **Live Frontend App**: `http://localhost:5173`
 
 ---
 
-## ⚙️ Configuration & Environment Variables
+### 📋 Complete Commands Cheatsheet
 
-Key variables defined in `.env.example`:
-
-| Variable | Description | Default |
-|---|---|---|
-| `DATABASE_URL` | Async PostgreSQL connection string | `postgresql+asyncpg://postgres:postgres@localhost:5432/devresolve` |
-| `SUPABASE_JWT_SECRET` | Secret used to validate incoming JWT bearer tokens | `dev-secret-super-safe-key` |
-| `API_KEY_ENCRYPTION_KEY` | 32-byte Fernet base64 key for encrypting provider keys | `X9gP3W8q...` |
-| `DB_POOL_SIZE` | SQLAlchemy connection pool base size | `10` |
-| `DB_MAX_OVERFLOW` | Maximum overflow connections under burst | `20` |
-| `OPENAI_API_KEY` | OpenAI API key for GPT-4o & embeddings | *(Optional)* |
-| `ANTHROPIC_API_KEY` | Claude 3.5 Sonnet API key | *(Optional)* |
-| `GEMINI_API_KEY` | Google Gemini 1.5 Pro API key | *(Optional)* |
-
----
-
-## 📡 API Endpoints
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/health` | Healthcheck and version info |
-| `GET` | `/api/auth/me` | Current authenticated user profile |
-| `GET` | `/api/projects` | List projects (paginated, sorted by activity) |
-| `POST` | `/api/projects` | Create a new scoped project |
-| `GET` | `/api/projects/{id}` | Retrieve project details |
-| `GET` | `/api/conversations` | List incident investigations for project |
-| `POST` | `/api/conversations` | Start a new incident investigation |
-| `GET` | `/api/conversations/{id}` | Detailed investigation message history |
-| `POST` | `/api/conversations/{id}/messages` | Post user message to investigation |
-| `GET` | `/api/conversations/{id}/stream` | **SSE stream** for live AI agent steps, diffs & test results |
+| Task | Location | Command |
+| :--- | :--- | :--- |
+| **Install Frontend Packages** | `frontend/` | `npm install` |
+| **Start Frontend Dev Server** | `frontend/` | `npm run dev` |
+| **Build Frontend for Production** | `frontend/` | `npm run build` |
+| **Preview Frontend Production Build** | `frontend/` | `npm run preview` |
+| **Create Python Virtual Environment** | `backend/` | `python -m venv .venv` |
+| **Activate Virtual Environment (Windows)** | `backend/` | `.\.venv\Scripts\activate` |
+| **Activate Virtual Environment (Mac/Linux)** | `backend/` | `source .venv/bin/activate` |
+| **Install Backend Dependencies** | `backend/` | `pip install -r requirements.txt` |
+| **Start Backend Dev Server** | `backend/` | `uvicorn app.main:app --reload --port 8000` |
+| **Run Backend Unit Tests** | `backend/` | `pytest` |
 
 ---
 
-## 🤝 Contributing
+## 🔑 Environment Variables Reference
 
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'feat: Add AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+### Backend (`backend/.env` / Render)
+
+| Variable | Description | Sample / Default |
+| :--- | :--- | :--- |
+| `APP_NAME` | Name of application | `DevResolve` |
+| `ENVIRONMENT` | Runtime environment | `development` or `production` |
+| `DEBUG` | Enable verbose debugging | `false` |
+| `DATABASE_URL` | PostgreSQL or SQLite connection URI | `postgresql+asyncpg://user:pass@host:5432/postgres` |
+| `JWT_SECRET_KEY` | 64-char secret key for JWT signatures | `310036221c7aa3c83fbc...` |
+| `ALLOWED_ORIGINS` | Permitted CORS origins (list or comma-separated) | `["https://devresolve.vercel.app","http://localhost:5173"]` |
+| `FRONTEND_URL` | Base public URL of frontend | `https://devresolve.vercel.app` |
+| `BACKEND_URL` | Base public URL of backend | `https://devresolve-backend.onrender.com` |
+| `SMTP_HOST` | Outbound SMTP host | `smtp.gmail.com` |
+| `SMTP_PORT` | Outbound SMTP port | `587` |
+| `SMTP_USER` | SMTP account email | `you@gmail.com` |
+| `SMTP_PASSWORD` | 16-character Google App Password | `xxxx xxxx xxxx xxxx` |
+| `SMTP_FROM_EMAIL`| Sender email address | `you@gmail.com` |
+| `GROQ_API_KEY` | Primary Groq reasoning API key | `gsk_...` |
+| `GEMINI_API_KEY` | Fallback Google Gemini API key | `AIzaSy...` |
+| `OPENAI_API_KEY` | Optional OpenAI key | `sk-proj-...` |
+| `ANTHROPIC_API_KEY`| Optional Anthropic key | `sk-ant-...` |
+
+### Frontend (`frontend/.env` / Vercel)
+
+| Variable | Description | Sample / Default |
+| :--- | :--- | :--- |
+| `VITE_API_URL` | Target FastAPI backend URL with `/api` | `https://devresolve-backend.onrender.com/api` |
 
 ---
 
-## 📄 License
+## 📦 Dependencies & Libraries
 
-Distributed under the MIT License. See `LICENSE` for more information.
+### Python Backend (`backend/requirements.txt`)
+```text
+fastapi==0.104.1            # Modern, high-performance web framework
+uvicorn[standard]==0.24.0   # Lightning-fast ASGI web server
+pydantic==2.5.2             # Data validation and parsing
+pydantic-settings==2.1.0    # Hierarchical settings management
+email-validator>=2.0.0      # RFC-compliant email address validation
+sqlalchemy==2.0.23          # Comprehensive SQL toolkit and Object Relational Mapper
+alembic==1.13.0             # Lightweight database migration tool
+asyncpg==0.29.0             # High-performance async PostgreSQL driver
+aiosqlite==0.19.0           # Async driver for SQLite local fallback
+pgvector==0.2.4             # Vector similarity search for PostgreSQL
+python-jose[cryptography]   # JWT token encoding, decoding, and verification
+cryptography>=41.0.0        # Symmetric Fernet encryption for credentials
+httpx==0.25.2               # Next-generation async HTTP client for Python
+openai==1.6.1               # Official OpenAI Python client
+tiktoken==0.5.2             # Fast BPE token counter for OpenAI & open models
+numpy>=1.24.0               # Vector cosine similarity computations
+aiofiles==23.2.1            # Asynchronous file operations
+```
+
+### JavaScript/TypeScript Frontend (`frontend/package.json`)
+```json
+{
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2",
+    "lucide-react": "^0.446.0",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^2.5.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "typescript": "^5.5.3",
+    "vite": "^5.4.2",
+    "tailwindcss": "^3.4.13",
+    "postcss": "^8.4.47",
+    "autoprefixer": "^10.4.20"
+  }
+}
+```
+
+---
+
+## ⚠️ Operational Precautions & Troubleshooting
+
+1. **Python Version Pinning (Render)**:
+   * Always ensure Render uses Python **`3.11.9`** (via `.python-version` or `PYTHON_VERSION=3.11.9`). Python 3.14 lacks pre-built wheels and causes Cargo compile errors.
+2. **Special Characters in Database Passwords**:
+   * If your Supabase password contains `@`, `#`, or `$`, the `@` symbol breaks connection URL parsing. Either URL-encode the characters (`@` $\rightarrow$ `%40`) or reset your password to alphanumeric characters.
+3. **Gmail SMTP Setup**:
+   * Do not use your regular Gmail login password. You must generate a **16-character Google App Password** via Google Account $\rightarrow$ Security $\rightarrow$ 2-Step Verification $\rightarrow$ App Passwords.
+4. **CORS Whitelisting**:
+   * Ensure `ALLOWED_ORIGINS` on Render includes your exact Vercel production URL (e.g. `https://devresolve.vercel.app`).
+5. **Vercel Client-Side Routing**:
+   * Ensure [frontend/vercel.json](file:///d:/project/DevResolve/frontend/vercel.json) exists with rewrite rules to `/index.html` to avoid 404 errors when refreshing subpages like `/app` or `/signup`.
+
+---
+
+## 📄 License & Acknowledgments
+
+This project is licensed under the **MIT License**. See the `LICENSE` file for details.
+
+Developed with ❤️ by **DevResolve Engineering Team**. Dedicated to accelerating developer productivity and eliminating production downtime worldwide.
