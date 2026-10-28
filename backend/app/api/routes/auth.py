@@ -342,6 +342,7 @@ async def signup_request_otp(data: SignupOtpRequest, db: AsyncSession = Depends(
         "status": "otp_sent",
         "message": f"A 6-digit verification code has been dispatched to {clean_email}.",
         "email": clean_email,
+        "dev_code": otp_code if not email_svc.is_smtp_configured() else None,
     }
 
 
@@ -451,6 +452,7 @@ async def signup_resend_otp(data: ResendSignupOtpRequest):
         "status": "otp_resent",
         "message": f"A new 6-digit verification code has been dispatched to {clean_email}.",
         "email": clean_email,
+        "dev_code": otp_code if not email_svc.is_smtp_configured() else None,
     }
 
 

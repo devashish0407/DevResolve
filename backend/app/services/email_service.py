@@ -33,8 +33,107 @@ class EmailService:
         self.use_tls = settings.SMTP_TLS
 
     def is_smtp_configured(self) -> bool:
-        """Checks if real SMTP credentials have been provided in environment."""
+        """Checks if real SMTP or Resend credentials have been provided in environment."""
+        resend_key = getattr(settings, "RESEND_API_KEY", None) or os.getenv("RESEND_API_KEY")
+        if resend_key and len(resend_key.strip()) > 8:
+            return True
         return bool(self.user and self.password and len(self.password) >= 6)
+
+    def _transmit_email(self, to_email: str, subject: str, plain_text: str, html_text: str) -> Dict[str, Any]:
+        """
+        Universal, resilient email dispatcher:
+        1. Checks for Resend API key (transmits over HTTPS 443 — immune to cloud SMTP port blocks).
+        2. Live SMTP (Gmail / Custom):
+           - Uses authenticated Gmail address as From: to avoid Google 553 SPF/DKIM rejections.
+           - Attempts Port 587 (STARTTLS).
+           - Automatically falls back to Port 465 (SSL) if Port 587 is firewalled or throttled.
+        3. Simulated delivery fallback with diagnostic instructions.
+        """
+        # 1. Resend API Dispatch (HTTPS Port 443)
+        resend_key = getattr(settings, "RESEND_API_KEY", None) or os.getenv("RESEND_API_KEY")
+        if resend_key and len(resend_key.strip()) > 8:
+            try:
+                import httpx
+                headers = {
+                    "Authorization": f"Bearer {resend_key.strip()}",
+                    "Content-Type": "application/json",
+                }
+                from_addr = "DevResolve <onboarding@resend.dev>" if not self.from_email or "devresolve.io" in self.from_email else f"{self.from_name} <{self.from_email}>"
+                payload = {
+                    "from": from_addr,
+                    "to": [to_email],
+                    "subject": subject,
+                    "text": plain_text,
+                    "html": html_text,
+                }
+                with httpx.Client(timeout=10.0) as client:
+                    resp = client.post("https://api.resend.com/emails", json=payload, headers=headers)
+                    if resp.status_code in (200, 201):
+                        print(f"[RESEND SUCCESS] Dispatched email to {to_email} via Resend REST API!")
+                        return {"status": "delivered", "provider": "resend", "recipient": to_email}
+                    else:
+                        print(f"[RESEND NOTICE] Status {resp.status_code}: {resp.text}")
+            except Exception as e:
+                print(f"[RESEND WARNING] Resend HTTP call failed ({e}). Proceeding to SMTP...")
+
+        # 2. Check if live SMTP credentials are provided
+        if not (self.user and self.password and len(self.password) >= 6):
+            print(f"\n[SIMULATED EMAIL DISPATCH] Recipient: {to_email} | Subject: {subject}")
+            print("   Note: Add SMTP_USER and SMTP_PASSWORD to Render Environment Variables for live delivery.\n")
+            return {"status": "simulated_success", "recipient": to_email}
+
+        # 3. Live SMTP Transmission
+        from_sender = self.user.strip() if (self.user and "@gmail.com" in self.user.lower()) else self.from_email
+
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = f"{self.from_name} <{from_sender}>"
+        msg["To"] = to_email
+        msg["Date"] = email.utils.formatdate(localtime=True)
+        domain = from_sender.split("@")[-1] if "@" in from_sender else "devresolve.io"
+        msg["Message-ID"] = email.utils.make_msgid(domain=domain)
+
+        msg.attach(MIMEText(plain_text, "plain", "utf-8"))
+        msg.attach(MIMEText(html_text, "html", "utf-8"))
+
+        clean_pwd = self.password.replace(" ", "").strip() if self.password else ""
+        clean_user = self.user.strip() if self.user else ""
+
+        # Attempt A: Primary Port (587 STARTTLS or 465 SSL)
+        try:
+            if self.port == 465:
+                with smtplib.SMTP_SSL(self.host, self.port, timeout=12.0) as server:
+                    server.ehlo()
+                    if clean_user and clean_pwd:
+                        server.login(clean_user, clean_pwd)
+                    server.sendmail(from_sender, [to_email], msg.as_string())
+            else:
+                with smtplib.SMTP(self.host, self.port, timeout=10.0) as server:
+                    server.ehlo()
+                    if self.use_tls:
+                        server.starttls()
+                        server.ehlo()
+                    if clean_user and clean_pwd:
+                        server.login(clean_user, clean_pwd)
+                    server.sendmail(from_sender, [to_email], msg.as_string())
+
+            print(f"[LIVE SMTP SUCCESS] Email successfully sent to {to_email} via {self.host}:{self.port}!")
+            return {"status": "delivered", "recipient": to_email}
+
+        except Exception as primary_err:
+            print(f"[SMTP WARNING] Port {self.port} transmission error ({primary_err}). Attempting Port 465 SSL fallback...")
+            try:
+                # Attempt B: Fallback to Port 465 SSL (immune to port 587 STARTTLS cloud blocks)
+                with smtplib.SMTP_SSL(self.host, 465, timeout=12.0) as server:
+                    server.ehlo()
+                    if clean_user and clean_pwd:
+                        server.login(clean_user, clean_pwd)
+                    server.sendmail(from_sender, [to_email], msg.as_string())
+                print(f"[LIVE SMTP SUCCESS] Email delivered to {to_email} via {self.host}:465 (SSL fallback)!")
+                return {"status": "delivered", "recipient": to_email}
+            except Exception as fallback_err:
+                print(f"[SMTP ERROR] Both port {self.port} and 465 failed for {to_email}: {fallback_err}")
+                return {"status": "failed", "error": str(fallback_err), "recipient": to_email}
 
     def _build_ticket_html(self, ticket: Dict[str, Any]) -> str:
         """Constructs an elegant, responsive dark-mode styled HTML email."""
@@ -223,31 +322,16 @@ class EmailService:
             _DISPATCHED_EMAILS.append(dispatch_record)
             return dispatch_record
 
-        # 3. Live SMTP Transmission with STARTTLS
-        try:
-            with smtplib.SMTP(self.host, self.port, timeout=12.0) as server:
-                server.ehlo()
-                if self.use_tls:
-                    server.starttls()
-                    server.ehlo()
-                if self.user and self.password:
-                    clean_pwd = self.password.replace(" ", "").strip()
-                    server.login(self.user.strip(), clean_pwd)
-                server.sendmail(self.from_email, [self.recipient], msg.as_string())
-
-            logger.info(f"[LIVE SMTP SUCCESS] Ticket #{ticket_id} email delivered to {self.recipient} via {self.host}:{self.port}!")
-            print(f"\n[LIVE SMTP SUCCESS] Ticket #{ticket_id} email delivered to {self.recipient} via {self.host}:{self.port}!\n")
-            dispatch_record["status"] = "delivered"
-            _DISPATCHED_EMAILS.append(dispatch_record)
-            return dispatch_record
-
-        except Exception as e:
-            logger.error(f"Failed to transmit ticket email via SMTP: {e}")
-            print(f"\n[SMTP WARNING] Could not transmit email to {self.recipient}: {e}\n")
-            dispatch_record["status"] = "failed"
-            dispatch_record["error"] = str(e)
-            _DISPATCHED_EMAILS.append(dispatch_record)
-            return dispatch_record
+        # 3. Unified Dispatch (Resend HTTPS / Dual-Port SMTP)
+        res = self._transmit_email(
+            to_email=self.recipient,
+            subject=msg["Subject"],
+            plain_text=f"Support Ticket #{ticket_id}: {ticket.get('title')}\n\n{ticket.get('description')}",
+            html_text=html,
+        )
+        dispatch_record.update(res)
+        _DISPATCHED_EMAILS.append(dispatch_record)
+        return dispatch_record
 
     async def send_ticket_notification(self, ticket: Dict[str, Any]) -> Dict[str, Any]:
         """Asynchronously dispatches the email alert without blocking the API call."""
@@ -367,28 +451,12 @@ class EmailService:
 </body>
 </html>"""
 
-        msg.attach(MIMEText(plain_text, "plain", "utf-8"))
-        msg.attach(MIMEText(html_text, "html", "utf-8"))
-
-        if not self.is_smtp_configured():
-            print(f"[SIMULATED EMAIL] Password reset for {to_email}: {reset_url}")
-            return {"status": "simulated_success", "recipient": to_email}
-
-        try:
-            with smtplib.SMTP(self.host, self.port, timeout=12.0) as server:
-                server.ehlo()
-                if self.use_tls:
-                    server.starttls()
-                    server.ehlo()
-                if self.user and self.password:
-                    clean_pwd = self.password.replace(" ", "").strip()
-                    server.login(self.user.strip(), clean_pwd)
-                server.sendmail(self.from_email, [to_email], msg.as_string())
-            print(f"[LIVE SMTP] Password reset email successfully sent to {to_email}")
-            return {"status": "delivered", "recipient": to_email}
-        except Exception as e:
-            print(f"[SMTP ERROR] Failed to send password reset email to {to_email}: {e}")
-            return {"status": "failed", "error": str(e), "recipient": to_email}
+        return self._transmit_email(
+            to_email=to_email,
+            subject="Reset Your DevResolve Password",
+            plain_text=plain_text,
+            html_text=html_text,
+        )
 
     async def send_password_reset_email(self, to_email: str, user_name: str, reset_url: str) -> Dict[str, Any]:
         """Asynchronously dispatches the password reset link."""
@@ -396,13 +464,6 @@ class EmailService:
 
     def _send_signup_otp_sync(self, to_email: str, user_name: str, otp_code: str) -> Dict[str, Any]:
         """Sends a 6-digit email verification OTP."""
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"Your DevResolve Verification Code: {otp_code}"
-        msg["From"] = f"{self.from_name} <{self.from_email}>"
-        msg["To"] = to_email
-        msg["Date"] = email.utils.formatdate(localtime=True)
-        msg["Message-ID"] = email.utils.make_msgid(domain="devresolve.io")
-
         plain_text = (
             f"Hello {user_name},\n\n"
             f"Your DevResolve account verification code is:\n\n"
@@ -461,28 +522,12 @@ class EmailService:
 </body>
 </html>"""
 
-        msg.attach(MIMEText(plain_text, "plain", "utf-8"))
-        msg.attach(MIMEText(html_text, "html", "utf-8"))
-
-        if not self.is_smtp_configured():
-            print(f"[SIMULATED EMAIL] Sign-up OTP for {to_email}: {otp_code}")
-            return {"status": "simulated_success", "recipient": to_email, "otp": otp_code}
-
-        try:
-            with smtplib.SMTP(self.host, self.port, timeout=12.0) as server:
-                server.ehlo()
-                if self.use_tls:
-                    server.starttls()
-                    server.ehlo()
-                if self.user and self.password:
-                    clean_pwd = self.password.replace(" ", "").strip()
-                    server.login(self.user.strip(), clean_pwd)
-                server.sendmail(self.from_email, [to_email], msg.as_string())
-            print(f"[LIVE SMTP] Sign-up OTP email successfully sent to {to_email}")
-            return {"status": "delivered", "recipient": to_email}
-        except Exception as e:
-            print(f"[SMTP ERROR] Failed to send OTP email to {to_email}: {e}")
-            return {"status": "failed", "error": str(e), "recipient": to_email}
+        return self._transmit_email(
+            to_email=to_email,
+            subject=f"Your DevResolve Verification Code: {otp_code}",
+            plain_text=plain_text,
+            html_text=html_text,
+        )
 
     async def send_signup_otp_email(self, to_email: str, user_name: str, otp_code: str) -> Dict[str, Any]:
         """Asynchronously dispatches the registration OTP."""

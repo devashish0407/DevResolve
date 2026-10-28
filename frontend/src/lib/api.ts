@@ -156,8 +156,8 @@ class ApiClient {
     return res;
   }
 
-  async requestSignupOtp(email: string, password: string, displayName?: string): Promise<{ status: string; message: string; email: string }> {
-    return this.request<{ status: string; message: string; email: string }>('/auth/signup/request-otp', {
+  async requestSignupOtp(email: string, password: string, displayName?: string): Promise<{ status: string; message: string; email: string; dev_code?: string }> {
+    return this.request<{ status: string; message: string; email: string; dev_code?: string }>('/auth/signup/request-otp', {
       method: 'POST',
       body: JSON.stringify({ email, password, display_name: displayName }),
     });
@@ -172,8 +172,8 @@ class ApiClient {
     return res;
   }
 
-  async resendSignupOtp(email: string): Promise<{ status: string; message: string; email: string }> {
-    return this.request<{ status: string; message: string; email: string }>('/auth/signup/resend-otp', {
+  async resendSignupOtp(email: string): Promise<{ status: string; message: string; email: string; dev_code?: string }> {
+    return this.request<{ status: string; message: string; email: string; dev_code?: string }>('/auth/signup/resend-otp', {
       method: 'POST',
       body: JSON.stringify({ email }),
     });
