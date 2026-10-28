@@ -1,4 +1,8 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import Footer from '../components/Footer';
+import { GithubIcon } from '../components/icons';
+import { useAuth } from '../lib/AuthContext';
 import {
   Sparkles,
   ArrowRight,
@@ -13,36 +17,139 @@ import {
   Terminal,
   FileCode,
   TestTube,
+  LogOut,
+  LayoutDashboard,
+  ChevronDown,
 } from 'lucide-react';
 
 export default function LandingPage() {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
 
   return (
     <div className="min-h-screen bg-dark-950 overflow-x-hidden">
       {/* ── Navigation ───────────────────────────────────── */}
       <nav className="fixed top-0 w-full z-50 border-b border-surface-border bg-dark-950/80 backdrop-blur-xl">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-accent flex items-center justify-center">
+          <div
+            onClick={() => navigate('/')}
+            className="flex items-center gap-2.5 cursor-pointer hover:opacity-90 transition-opacity"
+            title="DevResolve Home"
+          >
+            <div className="w-8 h-8 rounded-lg bg-gradient-accent flex items-center justify-center shadow-md shadow-accent-blue/20 shrink-0">
               <Sparkles size={18} className="text-white" />
             </div>
-            <span className="font-bold text-lg text-white">DevResolve</span>
+            <span className="font-bold text-lg text-white tracking-tight">DevResolve</span>
           </div>
 
           <div className="hidden md:flex items-center gap-8">
             <a href="#features" className="text-sm text-slate-400 hover:text-white transition-colors">Features</a>
             <a href="#how-it-works" className="text-sm text-slate-400 hover:text-white transition-colors">How it Works</a>
-            <a href="#integrations" className="text-sm text-slate-400 hover:text-white transition-colors">Integrations</a>
+            <a
+              href="https://github.com/devashish0407/DevResolve"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-slate-400 hover:text-white transition-colors flex items-center gap-1.5"
+            >
+              <GithubIcon size={16} />
+              <span>GitHub</span>
+            </a>
           </div>
 
           <div className="flex items-center gap-3">
-            <button onClick={() => navigate('/login')} className="btn-ghost">
-              Sign in
-            </button>
-            <button onClick={() => navigate('/signup')} className="btn-gradient">
-              Get Started
-            </button>
+            {/* Direct GitHub Repo Button */}
+            <a
+              href="https://github.com/devashish0407/DevResolve"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-ghost text-xs py-2 px-3 border border-surface-border flex items-center gap-2 hover:bg-dark-800 transition-colors text-slate-300 hover:text-white"
+              title="GitHub: devashish0407/DevResolve"
+            >
+              <GithubIcon size={16} />
+              <span className="font-medium hidden sm:inline">GitHub</span>
+            </a>
+
+            {user ? (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsProfileOpen(!isProfileOpen)}
+                  className="flex items-center gap-2.5 p-1.5 pr-3 rounded-xl bg-dark-900 border border-surface-border hover:border-accent-blue/50 transition-all cursor-pointer shadow-sm"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-gradient-accent flex items-center justify-center text-white text-xs font-bold shadow-inner shrink-0">
+                    {user.avatarUrl ? (
+                      <img src={user.avatarUrl} alt="Avatar" className="w-8 h-8 rounded-lg object-cover" />
+                    ) : (
+                      (user.displayName?.[0] || user.email?.[0] || 'U').toUpperCase()
+                    )}
+                  </div>
+                  <span className="text-xs font-semibold text-slate-200 hidden sm:inline max-w-[120px] truncate">
+                    {user.displayName || user.email?.split('@')[0]}
+                  </span>
+                  <ChevronDown
+                    size={14}
+                    className={`text-slate-400 transition-transform ${isProfileOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+
+                {isProfileOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setIsProfileOpen(false)}
+                    />
+                    <div className="absolute right-0 mt-2 w-56 rounded-xl bg-dark-850 border border-surface-border shadow-2xl py-2 z-50 animate-fade-in">
+                      <div className="px-3.5 py-2.5 border-b border-surface-border">
+                        <div className="text-xs font-bold text-white truncate">
+                          {user.displayName || 'Developer'}
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-mono truncate">
+                          {user.email}
+                        </div>
+                      </div>
+
+                      <div className="py-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsProfileOpen(false);
+                            navigate('/app');
+                          }}
+                          className="w-full px-3.5 py-2 text-left text-xs text-slate-200 hover:bg-dark-800 flex items-center gap-2 transition-colors cursor-pointer"
+                        >
+                          <LayoutDashboard size={14} className="text-accent-blue" />
+                          <span>Go to Dashboard</span>
+                        </button>
+                      </div>
+
+                      <div className="border-t border-surface-border pt-1">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setIsProfileOpen(false);
+                            await logout();
+                          }}
+                          className="w-full px-3.5 py-2 text-left text-xs text-rose-400 hover:bg-rose-500/10 flex items-center gap-2 transition-colors cursor-pointer"
+                        >
+                          <LogOut size={14} />
+                          <span>Log out</span>
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <>
+                <button onClick={() => navigate('/login')} className="btn-ghost text-xs py-2 px-3.5">
+                  Sign in
+                </button>
+                <button onClick={() => navigate('/signup')} className="btn-gradient text-xs py-2 px-3.5">
+                  Get Started
+                </button>
+              </>
+            )}
           </div>
         </div>
       </nav>
@@ -75,8 +182,11 @@ export default function LandingPage() {
           </p>
 
           <div className="flex items-center justify-center gap-4 mb-16">
-            <button onClick={() => navigate('/signup')} className="btn-gradient text-base px-8 py-3 flex items-center gap-2">
-              Get Started Free
+            <button
+              onClick={() => navigate(user ? '/app' : '/signup')}
+              className="btn-gradient text-base px-8 py-3 flex items-center gap-2 cursor-pointer shadow-lg hover:shadow-accent-blue/20"
+            >
+              <span>{user ? "Let's Investigate" : 'Get Started Free'}</span>
               <ArrowRight size={18} />
             </button>
             <button className="btn-ghost text-base px-6 py-3 flex items-center gap-2">
@@ -274,30 +384,18 @@ export default function LandingPage() {
           <p className="text-slate-400 text-lg mb-8">
             Start investigating production issues with AI that actually understands your code.
           </p>
-          <button onClick={() => navigate('/signup')} className="btn-gradient text-base px-10 py-3.5 inline-flex items-center gap-2">
-            Get Started Free
+          <button
+            onClick={() => navigate(user ? '/app' : '/signup')}
+            className="btn-gradient text-base px-10 py-3.5 inline-flex items-center gap-2 cursor-pointer shadow-lg hover:shadow-accent-blue/20"
+          >
+            <span>{user ? "Let's Investigate" : 'Get Started Free'}</span>
             <ArrowRight size={18} />
           </button>
         </div>
       </section>
 
       {/* ── Footer ───────────────────────────────────────── */}
-      <footer className="border-t border-surface-border py-12 px-6 bg-dark-950">
-        <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-md bg-gradient-accent flex items-center justify-center">
-              <Sparkles size={12} className="text-white" />
-            </div>
-            <span className="font-semibold text-white">DevResolve</span>
-          </div>
-          <p className="text-sm text-slate-500">© 2026 DevResolve. Built for developers who ship.</p>
-          <div className="flex items-center gap-6">
-            <a href="#" className="text-sm text-slate-500 hover:text-white transition-colors">Terms</a>
-            <a href="#" className="text-sm text-slate-500 hover:text-white transition-colors">Privacy</a>
-            <a href="#" className="text-sm text-slate-500 hover:text-white transition-colors">GitHub</a>
-          </div>
-        </div>
-      </footer>
+      <Footer variant="landing" />
     </div>
   );
 }

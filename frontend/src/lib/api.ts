@@ -136,6 +136,15 @@ class ApiClient {
     return res;
   }
 
+  async oauthLogin(provider: 'github' | 'google', email?: string, displayName?: string): Promise<{ access_token: string; user: any }> {
+    const res = await this.request<{ access_token: string; user: any }>('/auth/oauth', {
+      method: 'POST',
+      body: JSON.stringify({ provider, email, display_name: displayName }),
+    });
+    this.setToken(res.access_token);
+    return res;
+  }
+
   async getProfile(): Promise<any> {
     return this.request('/auth/me');
   }
@@ -285,6 +294,23 @@ class ApiClient {
     masked_key: string;
     supported_models: Record<string, Array<{ id: string; name: string; context: string }>>;
     custom_endpoint: string;
+    free_tier_tokens_used?: number;
+    free_tier_limit?: number;
+    is_free_tier?: boolean;
+    free_tier_exceeded?: boolean;
+    fallback_available?: boolean;
+    fallback_provider?: string;
+    provider_status?: {
+      provider: string;
+      status: 'healthy' | 'temporarily_rate_limited' | 'quota_exhausted';
+      label: string;
+      limit_type: string;
+      is_rate_limited: boolean;
+      is_exhausted: boolean;
+      retry_after_seconds: number;
+      message: string;
+      recommendation?: string;
+    };
     active_rate_limit_flags?: Array<{
       id: string;
       provider: string;
@@ -348,6 +374,17 @@ class ApiClient {
     });
   }
 
+  async getAIStatus(): Promise<any> {
+    return this.request('/settings/ai/status');
+  }
+
+  async replaceMasterGroqKey(key: string): Promise<{ status: string; message: string; masked_key?: string }> {
+    return this.request('/settings/ai/master-key', {
+      method: 'POST',
+      body: JSON.stringify({ groq_api_key: key }),
+    });
+  }
+
   // RAG
   async queryRag(query: string, topK: number = 5): Promise<any> {
     return this.request('/rag/query', {
@@ -356,11 +393,59 @@ class ApiClient {
     });
   }
 
-  async indexRagFile(filePath: string, content: string): Promise<any> {
+  async indexRagFile(filePath: string, content: string, retentionMode: 'temporary' | 'persistent' = 'persistent'): Promise<any> {
     return this.request('/rag/index', {
       method: 'POST',
-      body: JSON.stringify({ file_path: filePath, content }),
+      body: JSON.stringify({ file_path: filePath, content, retention_mode: retentionMode }),
     });
+  }
+
+  // Document Lifecycle & Storage Management
+  async ingestDocument(doc: {
+    name: string;
+    content: string;
+    retention_mode?: 'temporary' | 'persistent';
+    source_type?: string;
+    project_id?: string;
+  }): Promise<{ status: string; document: any }> {
+    return this.request('/rag/documents', {
+      method: 'POST',
+      body: JSON.stringify(doc),
+    });
+  }
+
+  async getDocuments(projectId?: string): Promise<{
+    status: string;
+    total_documents: number;
+    documents: Array<{
+      id: string;
+      name: string;
+      source_type: string;
+      retention_mode: 'temporary' | 'persistent';
+      is_persistent: boolean;
+      created_at: string;
+      expires_at?: string;
+      remaining_seconds?: number;
+      time_remaining_label: string;
+      retention_badge: string;
+      file_size_bytes: number;
+      chunk_count: number;
+    }>;
+  }> {
+    const q = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
+    return this.request(`/rag/documents${q}`);
+  }
+
+  async convertDocumentToPersistent(docId: string): Promise<{ status: string; message: string; document: any }> {
+    return this.request(`/rag/documents/${docId}/convert-persistent`, { method: 'POST' });
+  }
+
+  async deleteDocument(docId: string): Promise<{ status: string; message: string }> {
+    return this.request(`/rag/documents/${docId}`, { method: 'DELETE' });
+  }
+
+  async triggerDocumentCleanup(): Promise<any> {
+    return this.request('/rag/cleanup', { method: 'POST' });
   }
 
   // Notifications
@@ -396,6 +481,28 @@ class ApiClient {
 
   async getTickets(): Promise<Ticket[]> {
     return this.request('/tickets');
+  }
+
+  // Ollama Health & Cloud Fallback
+  async checkOllamaStatus(endpoint?: string): Promise<{
+    is_installed: boolean;
+    cli_path?: string;
+    is_running: boolean;
+    endpoint: string;
+    models: string[];
+    total_ram_gb: number;
+    avail_ram_gb: number;
+    error?: string;
+    recommendation: string;
+    active_provider: string;
+    power_saving_active: boolean;
+  }> {
+    const query = endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : '';
+    return this.request(`/settings/ai/ollama-status${query}`);
+  }
+
+  async switchToCloud(): Promise<{ status: string; message: string; config: any }> {
+    return this.request('/settings/ai/switch-to-cloud', { method: 'POST' });
   }
 
   // Stream investigation SSE

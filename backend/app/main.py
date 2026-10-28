@@ -8,6 +8,11 @@ Architecture:
   React → HTTPS → FastAPI (this) → Services → Database / AI / Docker
 """
 
+import sys
+import asyncio
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -19,12 +24,30 @@ from app.db.session import engine, Base, db_url
 import app.models.models  # ensure models are registered
 
 
+def _sync_sqlite_schema(conn):
+    Base.metadata.create_all(conn)
+    from sqlalchemy import text
+    for table_name, table in Base.metadata.tables.items():
+        res = conn.execute(text(f"PRAGMA table_info({table_name})"))
+        existing_cols = {row[1] for row in res.fetchall()}
+        if not existing_cols:
+            continue
+        for col in table.columns:
+            if col.name not in existing_cols:
+                col_type = "TEXT"
+                if str(col.type).startswith("INTEGER") or str(col.type).startswith("BOOLEAN"):
+                    col_type = "INTEGER"
+                elif str(col.type).startswith("FLOAT"):
+                    col_type = "REAL"
+                conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col.name} {col_type}"))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Auto-initialize database tables in local development mode (SQLite)
+    # Auto-initialize database tables and migrate missing columns in local development mode (SQLite)
     if db_url.startswith("sqlite"):
         async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+            await conn.run_sync(_sync_sqlite_schema)
     yield
 
 

@@ -136,9 +136,10 @@ class InvestigationAgentService:
         user_prompt: str,
         rag_context: Optional[str] = None,
         conversation_history: Optional[List[Dict[str, str]]] = None,
+        user_id: Optional[str] = "guest",
     ) -> Tuple[Optional[str], Optional[str]]:
         """
-        Calls the active BYOK LLM provider (Groq, Gemini, OpenAI, Anthropic, Ollama).
+        Calls the active BYOK LLM provider (Groq, Gemini, OpenAI, Anthropic).
         Returns: (content, error_or_notice)
         """
         from app.services.llm_service import LLMService
@@ -148,6 +149,7 @@ class InvestigationAgentService:
             user_prompt=user_prompt,
             rag_context=rag_context,
             conversation_history=conversation_history,
+            user_id=user_id or "guest",
         )
         provider = result.get("provider", "unknown")
         model = result.get("model", "")
@@ -155,18 +157,47 @@ class InvestigationAgentService:
         error = result.get("error")
 
         if content:
+            if result.get("fallback_used"):
+                fallback_prov = result.get("fallback_provider", "Gemini").title()
+                orig_prov = result.get("original_provider", "Groq").title()
+                content = (
+                    f"> ℹ️ *High traffic on {orig_prov}: DevResolve gracefully rerouted this analysis to {fallback_prov} to keep you uninterrupted.*\n\n"
+                    f"{content}"
+                )
             return content, None
 
-        if error == "rate_limit_exceeded":
-            flag = result.get("rate_limit_flag") or {}
-            retry_s = flag.get("retry_after_seconds", 60)
+        if error == "free_quota_exceeded":
             notice = (
-                "⏱️ **Investigation Engine Cooldown Active**\n\n"
-                "The analysis service is currently experiencing high processing demand.\n\n"
-                f"**Status:** Temporary cooldown active (~{retry_s}s remaining).\n\n"
+                "🎉 **DevResolve Free Tier Limit Reached (5,000 / 5,000 Tokens)**\n\n"
+                "You have enjoyed your complimentary 5,000 tokens of autonomous AI diagnosis and patch verification!\n\n"
+                "**How to continue with unlimited investigations:**\n"
+                "1. Click **AI Engine (BYOK)** in the top navigation bar.\n"
+                "2. Enter your own free API key (Free Groq key: [https://console.groq.com/keys](https://console.groq.com/keys) or Gemini key: [https://aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)).\n"
+                "3. Click **Save Configuration** to unlock unlimited investigations.\n\n"
+                "• All your indexed repositories, diff patches, and session history remain safe and intact."
+            )
+            return None, notice
+
+        if error == "quota_exhausted":
+            notice = (
+                "⚠️ **DevResolve Platform Daily Quota Depleted**\n\n"
+                "The platform master Groq key has reached its daily cloud token allocation.\n\n"
+                "🛡️ **Admin Status:** An automated alert email has already been dispatched to `devashish0716@gmail.com` with key replacement instructions.\n\n"
+                "**Immediate Solutions:**\n"
+                "1. **Bypass with BYOK:** Click **AI Engine (BYOK)** at the top and paste your own free Groq or Google Gemini API key to continue immediately with zero wait.\n"
+                "2. **Raise a Ticket:** Click **Raise a Ticket** below if you are testing an urgent issue."
+            )
+            return None, notice
+
+        if error in ("temporary_rate_limit", "rate_limit_exceeded"):
+            retry_s = result.get("retry_after_seconds", 30)
+            notice = (
+                "⏱️ **Provider Traffic Surge (Temporary Cooldown)**\n\n"
+                f"The AI reasoning provider is experiencing a momentary burst of requests.\n\n"
+                f"**Status:** Temporary backoff active (~{retry_s}s remaining). This is NOT an exhausted daily quota—it will resolve automatically in a few seconds.\n\n"
                 "**Next Steps:**\n"
-                "• Please pause for a moment while the queue clears before sending your next inquiry.\n"
-                "• If you have critical production incidents that require prioritized capacity, please click **Raise Support Ticket** below."
+                "• Wait a few seconds and click Send again.\n"
+                "• Or enter your own personal key in **AI Engine (BYOK)** to bypass platform queueing."
             )
             return None, notice
 
@@ -520,7 +551,8 @@ class InvestigationAgentService:
         await self._ensure_default_knowledge_indexed()
 
         from app.api.routes.integrations import get_rag_indexed_chunks
-        indexed = get_rag_indexed_chunks()
+        from app.services.document_lifecycle_service import DocumentLifecycleService
+        indexed = DocumentLifecycleService.get_searchable_chunks() + get_rag_indexed_chunks()
 
         # Context Expansion: detect if current query is referential (e.g. "5th line of code", "that file")
         expanded_query = query

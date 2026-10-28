@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { api } from '../lib/api';
 import RaiseTicketModal from '../components/RaiseTicketModal';
+import DocumentLifecycleModal from '../components/DocumentLifecycleModal';
 
 type Message = {
   id: string;
@@ -123,6 +124,16 @@ export default function ChatPage() {
       );
     }
     setIsTicketModalOpen(true);
+  };
+
+  const [isDocModalOpen, setIsDocModalOpen] = useState(false);
+
+  const handleDocumentAttached = (fileName: string, content: string) => {
+    setInput((prev) =>
+      prev
+        ? `${prev}\n\n[Attached Document: ${fileName}]\n${content.slice(0, 400)}...`
+        : `[Attached Document: ${fileName}]\n${content.slice(0, 400)}...`
+    );
   };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -673,7 +684,7 @@ ${liveDiff || '# No unified diff generated'}
               />
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => setIsDocModalOpen(true)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
                 title="Attach log or traceback document"
               >
@@ -996,6 +1007,12 @@ ${liveDiff || '# No unified diff generated'}
         initialDescription={ticketDescription}
         projectName={selectedProjectName}
         conversationId={conversationId || undefined}
+      />
+      <DocumentLifecycleModal
+        isOpen={isDocModalOpen}
+        onClose={() => setIsDocModalOpen(false)}
+        projectId={selectedProjectId}
+        onDocumentAttached={handleDocumentAttached}
       />
     </div>
   );

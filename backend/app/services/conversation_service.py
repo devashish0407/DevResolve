@@ -6,7 +6,7 @@ and chat history retrieval.
 
 import uuid
 from typing import List, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy import select, func, desc, asc
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
@@ -89,12 +89,17 @@ class ConversationService:
                 await self.db.flush()
                 target_project_id = project.id
 
+        retention = getattr(data, "retention_mode", "persistent") or "persistent"
+        exp_at = datetime.utcnow() + timedelta(days=5) if retention == "temporary" else None
+
         conv = Conversation(
             project_id=target_project_id,
             user_id=user_id,
             title=data.title,
             status="investigating",
             severity=data.severity,
+            retention_mode=retention,
+            expires_at=exp_at,
             message_count=0,
             last_message_at=datetime.utcnow(),
         )

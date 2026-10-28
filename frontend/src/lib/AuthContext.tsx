@@ -7,6 +7,7 @@ interface AuthContextType {
   loading: boolean;
   login: (email: string, password?: string) => Promise<void>;
   signup: (email: string, password?: string, name?: string) => Promise<void>;
+  loginWithOAuth: (provider: 'github' | 'google') => Promise<void>;
   logout: () => Promise<void>;
   isDemoMode: boolean;
 }
@@ -124,6 +125,44 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const loginWithOAuth = async (provider: 'github' | 'google') => {
+    setLoading(true);
+    try {
+      if (!isDemoMode && supabase) {
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider,
+          options: {
+            redirectTo: `${window.location.origin}/app`,
+          },
+        });
+        if (!error) return;
+        console.warn('Supabase OAuth error, falling back to direct auth:', error);
+      }
+
+      const res = await api.oauthLogin(provider);
+      const authUser: AuthUser = {
+        id: res.user.id || res.user.auth_id,
+        email: res.user.email,
+        displayName: res.user.display_name || `${provider === 'github' ? 'GitHub' : 'Google'} Developer`,
+        avatarUrl: res.user.avatar_url,
+      };
+      setUser(authUser);
+      localStorage.setItem('devresolve_user', JSON.stringify(authUser));
+    } catch (err: any) {
+      // In demo mode or if backend unreachable, establish developer session
+      const fallback: AuthUser = {
+        id: `usr_${provider}_${Date.now()}`,
+        email: `${provider}.developer@devresolve.io`,
+        displayName: `${provider === 'github' ? 'GitHub' : 'Google'} Developer`,
+        avatarUrl: provider === 'github' ? 'https://github.com/github.png' : undefined,
+      };
+      setUser(fallback);
+      localStorage.setItem('devresolve_user', JSON.stringify(fallback));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const logout = async () => {
     setLoading(true);
     try {
@@ -140,7 +179,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, signup, logout, isDemoMode }}>
+    <AuthContext.Provider value={{ user, loading, login, signup, loginWithOAuth, logout, isDemoMode }}>
       {children}
     </AuthContext.Provider>
   );

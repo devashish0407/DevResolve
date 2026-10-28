@@ -12,18 +12,22 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import DeclarativeBase
 
+from pathlib import Path
 from app.core.config import settings
 
 # ── Resilient Database URL Resolution ─────────────────────────────
+BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+DEFAULT_SQLITE_PATH = (BACKEND_DIR / "devresolve.db").as_posix()
+
 db_url = settings.DATABASE_URL.strip() if settings.DATABASE_URL else ""
-if not db_url:
-    db_url = "sqlite+aiosqlite:///./devresolve.db"
+if not db_url or "sqlite" in db_url:
+    db_url = f"sqlite+aiosqlite:///{DEFAULT_SQLITE_PATH}"
 
 # ── Engine Configuration ──────────────────────────────────────────
 if db_url.startswith("sqlite"):
     engine = create_async_engine(
         db_url,
-        connect_args={"check_same_thread": False},
+        connect_args={"check_same_thread": False, "timeout": 30},
         echo=settings.DB_ECHO,
     )
 else:

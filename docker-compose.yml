@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # PostgreSQL 16 with pgvector extension
+  # ── 1. PostgreSQL 16 with pgvector Extension ────────────────────────
   db:
     image: pgvector/pgvector:pg16
     container_name: devresolve-db
@@ -15,12 +15,12 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # FastAPI Backend
+  # ── 2. FastAPI Backend Service ──────────────────────────────────────
   backend:
     build:
       context: ./backend
@@ -30,19 +30,32 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-devresolve}
-      SUPABASE_URL: ${SUPABASE_URL:-http://localhost:8000}
-      SUPABASE_KEY: ${SUPABASE_KEY:-dev-key}
-      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-dev-secret-super-safe-key-change-in-prod}
+      OLLAMA_ENDPOINT: ${OLLAMA_ENDPOINT:-http://ollama:11434}
       API_KEY_ENCRYPTION_KEY: ${API_KEY_ENCRYPTION_KEY:-X9gP3W8qY6bZ4vC2mK1jL5nRt7uQ9sV3x0zA8eD6fH4=}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      SUPPORT_NOTIFICATION_EMAIL: ${SUPPORT_NOTIFICATION_EMAIL:-devashish0716@gmail.com}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-alerts@devresolve.io}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-DevResolve Support Desk}
+      SMTP_TLS: ${SMTP_TLS:-true}
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
-  # React Frontend (Nginx SPA)
+  # ── 3. React Frontend (Nginx SPA + Reverse Proxy) ───────────────────
   frontend:
     build:
       context: ./frontend
@@ -54,6 +67,26 @@ services:
     ports:
       - "80:80"
 
+  # ── 4. Containerized Ollama Service (Persistent Model Weights) ──────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: devresolve-ollama
+    restart: always
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # To enable GPU on an NVIDIA-equipped AWS EC2 host or GPU VPS, uncomment below:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
 volumes:
   pgdata:
+    driver: local
+  ollama_data:
     driver: local

@@ -444,6 +444,18 @@ class Document(TimestampMixin, Base):
     file_size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
 
+    # ── Document Lifecycle & Retention Mode ────────────────────────
+    retention_mode: Mapped[str] = mapped_column(
+        String(20), default="temporary", nullable=False,
+        comment="temporary (auto-expires in 5 days) | persistent (kept until deleted)"
+    )
+    expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+        comment="Timestamp when temporary document and its embeddings auto-expire"
+    )
+    is_expired: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     # ── Relationships ──
     repository: Mapped[Optional["Repository"]] = relationship(back_populates="documents")
     chunks: Mapped[List["DocumentChunk"]] = relationship(
@@ -581,6 +593,17 @@ class Conversation(TimestampMixin, SoftDeleteMixin, Base):
         comment="critical | high | medium | low"
     )
     
+    # ── Retention & Storage Lifecycle ──
+    retention_mode: Mapped[str] = mapped_column(
+        String(20), default="persistent", nullable=False,
+        comment="persistent (kept until deleted) | temporary (auto-expire)"
+    )
+    expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+        comment="Expiration timestamp for temporary chats"
+    )
+    is_expired: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    
     # ── Denormalized ──
     message_count: Mapped[int] = mapped_column(Integer, default=0)
     last_message_at: Mapped[Optional[datetime]] = mapped_column(
@@ -673,6 +696,10 @@ class Message(TimestampMixin, Base):
 
     # ── Relationships ──
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
+    sources: Mapped[List["MessageSource"]] = relationship(
+        back_populates="message", cascade="all, delete-orphan",
+        order_by="MessageSource.created_at"
+    )
 
     __table_args__ = (
         CheckConstraint(
@@ -684,6 +711,80 @@ class Message(TimestampMixin, Base):
             name="uq_message_sequence"
         ),
         Index("ix_messages_conversation_seq", "conversation_id", "sequence_number"),
+    )
+
+
+# ─────────────────────────────────────────────────────────────────
+# MESSAGE SOURCES — decoupled references to RAG documents & chunks
+# ─────────────────────────────────────────────────────────────────
+
+class MessageSource(TimestampMixin, Base):
+    """
+    Decoupled reference linking a message to a retrieved document chunk.
+    
+    DECOUPLING GUARANTEE:
+    A chat message refers to a document chunk without owning the content.
+    When a temporary document expires after 5 days:
+    - The document and its chunks/embeddings are deleted.
+    - The message history remains intact.
+    - The message_source is marked is_source_available = False with
+      retention_notice = "Source Document Expired (5-day temporary analysis policy)".
+    """
+    __tablename__ = "message_sources"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("messages.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    document_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Nullified if the underlying document expires or is deleted"
+    )
+    chunk_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("document_chunks.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Nullified if chunk is deleted"
+    )
+    
+    source_title: Mapped[str] = mapped_column(
+        String(500), nullable=False,
+        comment="Document name or file path preserved even if document is purged"
+    )
+    chunk_snippet: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True,
+        comment="Brief citation snippet (up to 300 chars) preserved for context"
+    )
+    relevance_score: Mapped[Optional[float]] = mapped_column(
+        Float, nullable=True,
+        comment="RAG hybrid cosine/keyword similarity score"
+    )
+    is_source_available: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False,
+        comment="Set to False when underlying document expires or is purged"
+    )
+    retention_notice: Mapped[Optional[str]] = mapped_column(
+        String(200), nullable=True, default="Active Source",
+        comment="Status message e.g. Active or Expired per 5-day policy"
+    )
+
+    # ── Relationships ──
+    message: Mapped["Message"] = relationship(back_populates="sources")
+    document: Mapped[Optional["Document"]] = relationship()
+    chunk: Mapped[Optional["DocumentChunk"]] = relationship()
+
+    __table_args__ = (
+        Index("ix_message_sources_msg", "message_id"),
+        Index("ix_message_sources_doc", "document_id"),
     )
 
 

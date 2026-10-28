@@ -1,27 +1,52 @@
 """
 Unified LLM & BYOK Service
 Supports multi-provider LLM orchestration:
-- Groq Cloud (Llama 3.3 70B, Llama 3.1 8B, Mixtral) — Fast & Free Tier!
-- Google Gemini (Gemini 1.5 Flash / 2.0 Flash) via REST API
-- OpenAI (GPT-4o, GPT-4o-mini)
-- Anthropic (Claude 3.5 Sonnet)
-- Local Ollama (Llama 3.2, Mistral, DeepSeek)
+- Groq Cloud (Qwen 3.8 27B, Llama 3.3 70B, GPT-OSS 120B) — Fast & Free Tier!
+- Google Gemini (Gemini 1.5 Flash / Pro, Gemini 2.0 Flash) via REST API
+- OpenAI (GPT-4o, GPT-4o-mini, o1-mini)
+- Anthropic (Claude 3.5 Sonnet, Claude 3.5 Haiku)
+
+Provides:
+- 5,000 token complimentary free tier per user account.
+- Dynamic error classification: distinguishes temporary RPM/TPM bursts from daily TPD quota exhaustion.
+- Automated fallback to secondary provider when available.
+- Alert cooldown tracking so admins are alerted once per incident without inbox flooding.
+- Hot-replacement of platform master key at runtime without restarts.
 """
 
 import httpx
 import os
 import time
+import asyncio
 from typing import Dict, Any, Optional, List
 from app.core.config import settings
-from app.core.rate_limit_manager import RateLimitManager
+from app.core.rate_limit_manager import (
+    RateLimitManager,
+    AlertCooldownManager,
+    LimitType,
+)
 
 # In-memory store for runtime BYOK settings (can be overridden by user in UI without restarting server)
+_PLATFORM_DEFAULT_GROQ_KEY = (
+    getattr(settings, "GROQ_API_KEY", None)
+    or os.getenv("GROQ_API_KEY")
+    or "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"
+)
+
 _BYOK_STORE: Dict[str, Any] = {
     "provider": "groq",
     "model": "qwen/qwen3.8-27b",
-    "api_key": getattr(settings, "GROQ_API_KEY", None) or os.getenv("GROQ_API_KEY") or "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",
-    "custom_endpoint": "",
+    "api_key": _PLATFORM_DEFAULT_GROQ_KEY,
+    "custom_api_key": None,  # Set only when user enters their own personal BYOK key
 }
+
+# ── Platform Free Tier & Usage Tracking ─────────────────────────────
+USER_FREE_TIER_TOKEN_LIMIT = 5000  # 5,000 tokens maximum per user account
+PLATFORM_GROQ_ALERT_THRESHOLD = 95000  # Alerts admin when ~5k tokens remain of daily quota
+
+_USER_TOKENS: Dict[str, int] = {}
+_PLATFORM_MASTER_TOKENS: int = 0
+_QUOTA_ALERT_SENT: bool = False
 
 # Supported models per provider
 SUPPORTED_MODELS = {
@@ -46,11 +71,6 @@ SUPPORTED_MODELS = {
         {"id": "claude-3-5-sonnet-20241022", "name": "Claude 3.5 Sonnet (State-of-the-Art Code)", "context": "200k tokens"},
         {"id": "claude-3-5-haiku-20241022", "name": "Claude 3.5 Haiku (Fast)", "context": "200k tokens"},
     ],
-    "ollama": [
-        {"id": "llama3.2", "name": "Llama 3.2 (Local)", "context": "8k tokens"},
-        {"id": "deepseek-r1", "name": "DeepSeek R1 (Local Reasoning)", "context": "32k tokens"},
-        {"id": "mistral", "name": "Mistral 7B (Local)", "context": "8k tokens"},
-    ],
 }
 
 
@@ -59,8 +79,8 @@ class LLMService:
         pass
 
     @classmethod
-    def get_byok_config(cls) -> Dict[str, Any]:
-        """Get current BYOK config with masked key and active rate-limit flags."""
+    def get_byok_config(cls, user_id: str = "guest") -> Dict[str, Any]:
+        """Get current BYOK config with masked key, free tier token progress, provider status, and fallback options."""
         provider = _BYOK_STORE.get("provider", "groq")
         raw_key = cls.get_active_api_key(provider)
 
@@ -74,13 +94,26 @@ class LLMService:
         else:
             masked = ""
 
+        has_custom_byok = bool(_BYOK_STORE.get("custom_api_key"))
+        user_used = _USER_TOKENS.get(user_id, 0)
+
+        fallback_prov = cls.get_fallback_provider(exclude_provider=provider)
+        status_info = RateLimitManager.get_provider_status(provider)
+
         return {
             "provider": provider,
-            "model": _BYOK_STORE.get("model", "llama-3.3-70b-versatile"),
+            "model": _BYOK_STORE.get("model", "qwen/qwen3.8-27b"),
             "has_key": is_valid,
             "masked_key": masked,
             "supported_models": SUPPORTED_MODELS,
-            "custom_endpoint": _BYOK_STORE.get("custom_endpoint", ""),
+            "is_free_tier": not has_custom_byok,
+            "free_tier_tokens_used": user_used,
+            "free_tier_limit": USER_FREE_TIER_TOKEN_LIMIT,
+            "free_tier_exceeded": (not has_custom_byok) and (user_used >= USER_FREE_TIER_TOKEN_LIMIT),
+            "platform_tokens_total": _PLATFORM_MASTER_TOKENS,
+            "provider_status": status_info,
+            "fallback_available": bool(fallback_prov),
+            "fallback_provider": fallback_prov,
             "active_rate_limit_flags": RateLimitManager.get_active_flags(),
             "is_current_provider_flagged": RateLimitManager.is_flagged(provider),
         }
@@ -98,20 +131,91 @@ class LLMService:
             "gemini": "gemini-1.5-flash",
             "openai": "gpt-4o-mini",
             "anthropic": "claude-3-5-haiku-20241022",
-            "ollama": "llama3.2",
         }
-        return fallbacks.get(provider, valid_ids[0] if valid_ids else "default")
+        return fallbacks.get(provider, valid_ids[0] if valid_ids else "qwen/qwen3.8-27b")
 
     @classmethod
-    def update_byok_config(cls, provider: str, model: str, api_key: Optional[str] = None, custom_endpoint: Optional[str] = None):
+    def update_byok_config(cls, provider: str, model: str, api_key: Optional[str] = None):
         """Update runtime BYOK configuration with sanitized model mapping."""
         provider = provider.lower().strip()
         _BYOK_STORE["provider"] = provider
         _BYOK_STORE["model"] = cls.sanitize_model(provider, model)
         if api_key is not None and api_key.strip():
             _BYOK_STORE["api_key"] = api_key.strip()
-        if custom_endpoint is not None:
-            _BYOK_STORE["custom_endpoint"] = custom_endpoint.strip()
+            _BYOK_STORE["custom_api_key"] = api_key.strip()
+        elif api_key == "":
+            _BYOK_STORE["custom_api_key"] = None
+            _BYOK_STORE["api_key"] = _PLATFORM_DEFAULT_GROQ_KEY
+
+    @classmethod
+    def get_fallback_provider(cls, exclude_provider: str) -> Optional[str]:
+        """
+        Finds the best available authorized fallback provider when the primary provider
+        is rate-limited or exhausted. Checks environment variables and custom keys.
+        """
+        candidates = ["gemini", "openai", "anthropic", "groq"]
+        for prov in candidates:
+            if prov == exclude_provider.lower():
+                continue
+            if RateLimitManager.is_flagged(prov):
+                continue
+            key = cls.get_active_api_key(prov)
+            if key and len(key) > 8 and not key.endswith("..."):
+                return prov
+        return None
+
+    @classmethod
+    async def set_platform_master_key(cls, new_key: str) -> Dict[str, Any]:
+        """
+        Hot-replaces the platform master Groq key dynamically at runtime.
+        Verifies the new key against Groq Cloud before committing.
+        Resets token counters and clears any active rate-limit flags.
+        """
+        new_key = (new_key or "").strip()
+        if not new_key or len(new_key) < 20 or not new_key.startswith("gsk_"):
+            return {
+                "status": "error",
+                "message": "Invalid Groq API key format. Groq Cloud keys start with 'gsk_' and are 56+ characters.",
+            }
+
+        headers = {
+            "Authorization": f"Bearer {new_key}",
+            "Content-Type": "application/json",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                res = await client.get("https://api.groq.com/openai/v1/models", headers=headers)
+                if res.status_code != 200:
+                    return {
+                        "status": "error",
+                        "message": f"Groq Cloud rejected this key (HTTP {res.status_code}): {res.text[:120]}",
+                    }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Could not reach Groq Cloud to verify replacement key: {str(e)}",
+            }
+
+        global _PLATFORM_DEFAULT_GROQ_KEY, _PLATFORM_MASTER_TOKENS, _QUOTA_ALERT_SENT
+        _PLATFORM_DEFAULT_GROQ_KEY = new_key
+        if not _BYOK_STORE.get("custom_api_key"):
+            _BYOK_STORE["api_key"] = new_key
+
+        _PLATFORM_MASTER_TOKENS = 0
+        _QUOTA_ALERT_SENT = False
+
+        # Clear rate-limit flags and cooldowns
+        RateLimitManager.clear_flag("groq")
+        AlertCooldownManager.reset_cooldown("groq_daily_exhausted")
+        AlertCooldownManager.reset_cooldown("groq_threshold_warning")
+
+        masked = f"{new_key[:4]}••••••••{new_key[-4:]}"
+        print(f"[HOT RELOAD] Master Groq key successfully updated to {masked}")
+        return {
+            "status": "success",
+            "message": "Platform master Groq API key verified and updated successfully! All rate-limits cleared.",
+            "masked_key": masked,
+        }
 
     @classmethod
     def get_active_api_key(cls, provider: str) -> str:
@@ -124,7 +228,7 @@ class LLMService:
 
         # Check env vars
         if provider == "groq":
-            key = getattr(settings, "GROQ_API_KEY", None) or os.getenv("GROQ_API_KEY") or ""
+            key = getattr(settings, "GROQ_API_KEY", None) or os.getenv("GROQ_API_KEY") or _PLATFORM_DEFAULT_GROQ_KEY
         elif provider == "gemini":
             key = getattr(settings, "GEMINI_API_KEY", None) or getattr(settings, "GOOGLE_API_KEY", None) or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
         elif provider == "openai":
@@ -143,27 +247,26 @@ class LLMService:
         api_key = (api_key or "").strip()
         model = self.sanitize_model(provider, model)
 
-        # Pre-validate key prefixes to prevent confusing 400/404 errors
+        # Pre-validate key prefixes to prevent confusing errors
         if "..." in api_key:
             return {
                 "status": "error",
-                "message": "It looks like you copied the masked key from the Groq table (it contains '...'). In the Groq Console, the full secret key is only shown once in the popup when clicking '+ Create API Key'. Please click '+ Create API Key' on console.groq.com/keys, copy the full unmasked key from the popup, and paste it here."
+                "message": "It looks like you copied the masked key (containing '...'). Please copy the full unmasked key from your provider console."
             }
-
         if provider == "gemini" and api_key.startswith("gsk_"):
             return {
                 "status": "error",
-                "message": "This API key starts with 'gsk_', which is a Groq Cloud key. Please select 'Groq Cloud' as your provider, or get a Gemini API key from https://aistudio.google.com"
+                "message": "This key starts with 'gsk_', which is a Groq key. Please select 'Groq Cloud' as your provider."
             }
         if provider == "groq" and api_key.startswith("AIza"):
             return {
                 "status": "error",
-                "message": "This API key starts with 'AIza', which is a Google Gemini key. Please select 'Google Gemini' as your provider, or get a free Groq key from https://console.groq.com/keys"
+                "message": "This key starts with 'AIza', which is a Google Gemini key. Please select 'Google Gemini' as your provider."
             }
         if provider == "groq" and api_key.startswith("sk-") and not api_key.startswith("gsk_"):
             return {
                 "status": "error",
-                "message": "This API key starts with 'sk-', which is an OpenAI key. Please select 'OpenAI' as your provider, or get a free Groq key from https://console.groq.com/keys"
+                "message": "This key starts with 'sk-', which is an OpenAI key. Please select 'OpenAI' as your provider."
             }
 
         try:
@@ -173,7 +276,6 @@ class LLMService:
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 }
-                # Check models endpoint first to confirm key validity and detect active models
                 models_url = "https://api.groq.com/openai/v1/models"
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     models_res = await client.get(models_url, headers=headers)
@@ -182,25 +284,29 @@ class LLMService:
                         RateLimitManager.clear_flag("groq")
                         models_data = models_res.json().get("data", [])
                         active_ids = [m.get("id") for m in models_data if not m.get("id", "").startswith("whisper")]
-                        chosen_model = model if model in active_ids else ("llama-3.3-70b-versatile" if "llama-3.3-70b-versatile" in active_ids else (active_ids[0] if active_ids else model))
+                        chosen_model = model if model in active_ids else (active_ids[0] if active_ids else model)
                         return {
                             "status": "success",
-                            "message": f"Successfully connected to Groq Cloud! Using {chosen_model}.",
+                            "message": f"Successfully connected to Groq Cloud! Model: {chosen_model}.",
                             "latency_ms": latency,
                             "active_models": active_ids[:6],
                         }
                     elif models_res.status_code == 401:
                         return {
                             "status": "error",
-                            "message": "Invalid Groq API Key (HTTP 401 Unauthorized). Please make sure the full key was copied when creating it."
+                            "message": "Invalid Groq API Key (HTTP 401 Unauthorized)."
+                        }
+                    elif models_res.status_code == 429:
+                        analysis = RateLimitManager.classify_error("groq", 429, models_res.text, dict(models_res.headers))
+                        flag = RateLimitManager.raise_flag("groq", model, 429, models_res.text, **analysis)
+                        return {
+                            "status": "rate_limit",
+                            "message": analysis["recommendation"],
+                            "rate_limit_flag": flag,
+                            "latency_ms": latency,
                         }
                     else:
-                        err_text = models_res.text
-                        try:
-                            err_text = models_res.json().get("error", {}).get("message", err_text)
-                        except Exception:
-                            pass
-                        return {"status": "error", "message": f"Groq error ({models_res.status_code}): {err_text[:200]}"}
+                        return {"status": "error", "message": f"Groq error ({models_res.status_code}): {models_res.text[:200]}"}
 
             # ── 2. Google Gemini ──────────────────────────────────
             elif provider == "gemini":
@@ -219,32 +325,17 @@ class LLMService:
                             "message": f"Successfully authenticated with Google Gemini ({model})!",
                             "latency_ms": latency,
                         }
-                    elif res.status_code == 429 or "RESOURCE_EXHAUSTED" in res.text or "quota" in res.text.lower():
-                        err_text = res.text
-                        try:
-                            err_text = res.json().get("error", {}).get("message", err_text)
-                        except Exception:
-                            pass
-                        flag = RateLimitManager.raise_flag(
-                            provider="gemini",
-                            model=model,
-                            status_code=res.status_code,
-                            error_message=err_text,
-                            retry_after_seconds=60,
-                        )
+                    elif res.status_code == 429 or "RESOURCE_EXHAUSTED" in res.text:
+                        analysis = RateLimitManager.classify_error("gemini", 429, res.text, dict(res.headers))
+                        flag = RateLimitManager.raise_flag("gemini", model, 429, res.text, **analysis)
                         return {
                             "status": "rate_limit",
-                            "message": f"🚨 Rate Limit Flag Raised: Gemini API quota exceeded (HTTP 429).",
+                            "message": analysis["recommendation"],
                             "rate_limit_flag": flag,
                             "latency_ms": latency,
                         }
                     else:
-                        err_text = res.text
-                        try:
-                            err_text = res.json().get("error", {}).get("message", err_text)
-                        except Exception:
-                            pass
-                        return {"status": "error", "message": f"Gemini error ({res.status_code}): {err_text}"}
+                        return {"status": "error", "message": f"Gemini error ({res.status_code}): {res.text[:200]}"}
 
             # ── 3. OpenAI ─────────────────────────────────────────
             elif provider == "openai":
@@ -265,57 +356,147 @@ class LLMService:
                             "message": f"Successfully authenticated with OpenAI ({model})!",
                             "latency_ms": latency,
                         }
-                    elif res.status_code == 429 or "rate_limit" in res.text.lower() or "insufficient_quota" in res.text.lower():
-                        err_text = res.text
-                        try:
-                            err_text = res.json().get("error", {}).get("message", err_text)
-                        except Exception:
-                            pass
-                        flag = RateLimitManager.raise_flag(
-                            provider="openai",
-                            model=model,
-                            status_code=res.status_code,
-                            error_message=err_text,
-                            retry_after_seconds=60,
-                        )
-                        return {
-                            "status": "rate_limit",
-                            "message": f"🚨 Rate Limit Flag Raised: OpenAI rate limit or quota exceeded (HTTP 429).",
-                            "rate_limit_flag": flag,
-                            "latency_ms": latency,
-                        }
                     else:
                         return {"status": "error", "message": f"OpenAI error ({res.status_code}): {res.text[:200]}"}
 
-            # ── 4. Ollama (Local) ─────────────────────────────────
-            elif provider == "ollama":
-                endpoint = _BYOK_STORE.get("custom_endpoint") or "http://localhost:11434"
-                url = f"{endpoint}/api/tags"
-                try:
-                    async with httpx.AsyncClient(timeout=4.0) as client:
-                        res = await client.get(url)
-                        latency = round((time.time() - t0) * 1000)
-                        if res.status_code == 200:
-                            RateLimitManager.clear_flag("ollama")
-                            models = [m.get("name") for m in res.json().get("models", [])]
-                            models_str = ", ".join(models[:4]) if models else "No models installed yet"
-                            return {
-                                "status": "success",
-                                "message": f"Connected to local Ollama! Models available: {models_str}",
-                                "latency_ms": latency,
-                            }
-                        else:
-                            return {"status": "error", "message": f"Ollama returned HTTP {res.status_code}"}
-                except (httpx.ConnectError, httpx.ConnectTimeout):
-                    return {
-                        "status": "error",
-                        "message": "The local AI engine is currently offline or unreachable. Please ensure the local service is running or switch to a cloud engine in settings."
-                    }
+            # ── 4. Anthropic ──────────────────────────────────────
+            elif provider == "anthropic":
+                url = "https://api.anthropic.com/v1/messages"
+                headers = {
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                }
+                payload = {
+                    "model": model or "claude-3-5-haiku-20241022",
+                    "max_tokens": 15,
+                    "messages": [{"role": "user", "content": "Hi"}],
+                }
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    res = await client.post(url, json=payload, headers=headers)
+                    latency = round((time.time() - t0) * 1000)
+                    if res.status_code == 200:
+                        RateLimitManager.clear_flag("anthropic")
+                        return {
+                            "status": "success",
+                            "message": f"Successfully authenticated with Anthropic ({model})!",
+                            "latency_ms": latency,
+                        }
+                    else:
+                        return {"status": "error", "message": f"Anthropic error ({res.status_code}): {res.text[:200]}"}
 
             else:
                 return {"status": "error", "message": f"Provider '{provider}' test not implemented"}
         except Exception as e:
             return {"status": "error", "message": f"Connection failed: {str(e)}"}
+
+    async def _execute_provider_call(
+        self,
+        provider: str,
+        model: str,
+        api_key: str,
+        system_prompt: str,
+        full_user_content: str,
+        formatted_messages: List[Dict[str, str]],
+    ) -> Dict[str, Any]:
+        """Low-level API dispatcher for a given provider."""
+        # 1. Groq Cloud
+        if provider == "groq":
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "model": model or "qwen/qwen3.8-27b",
+                "messages": formatted_messages,
+                "temperature": 0.3,
+                "max_tokens": 2048,
+            }
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                res = await client.post(url, json=payload, headers=headers)
+                return {
+                    "status_code": res.status_code,
+                    "headers": dict(res.headers),
+                    "body": res.json() if res.status_code == 200 else {},
+                    "raw_text": res.text,
+                }
+
+        # 2. Google Gemini
+        elif provider == "gemini":
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+            payload = {
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [{"text": f"{system_prompt}\n\n{full_user_content}"}]
+                    }
+                ],
+                "generationConfig": {"temperature": 0.4, "maxOutputTokens": 2048}
+            }
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                res = await client.post(url, json=payload)
+                data = res.json() if res.status_code == 200 else {}
+                text = ""
+                candidates = data.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    text = "".join([p.get("text", "") for p in parts])
+                return {
+                    "status_code": res.status_code,
+                    "headers": dict(res.headers),
+                    "body": {"content": text},
+                    "raw_text": res.text,
+                }
+
+        # 3. OpenAI
+        elif provider == "openai":
+            url = "https://api.openai.com/v1/chat/completions"
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+            payload = {
+                "model": model or "gpt-4o-mini",
+                "messages": formatted_messages,
+                "temperature": 0.4,
+                "max_tokens": 2048,
+            }
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                res = await client.post(url, json=payload, headers=headers)
+                data = res.json() if res.status_code == 200 else {}
+                text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                return {
+                    "status_code": res.status_code,
+                    "headers": dict(res.headers),
+                    "body": {"content": text},
+                    "raw_text": res.text,
+                }
+
+        # 4. Anthropic
+        elif provider == "anthropic":
+            url = "https://api.anthropic.com/v1/messages"
+            headers = {
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            }
+            anthropic_messages = [m for m in formatted_messages if m["role"] != "system"]
+            payload = {
+                "model": model or "claude-3-5-sonnet-20241022",
+                "system": system_prompt,
+                "messages": anthropic_messages,
+                "max_tokens": 2048,
+            }
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                res = await client.post(url, json=payload, headers=headers)
+                data = res.json() if res.status_code == 200 else {}
+                text = "".join([c.get("text", "") for c in data.get("content", [])])
+                return {
+                    "status_code": res.status_code,
+                    "headers": dict(res.headers),
+                    "body": {"content": text},
+                    "raw_text": res.text,
+                }
+
+        return {"status_code": 400, "headers": {}, "body": {}, "raw_text": f"Unsupported provider {provider}"}
 
     async def query_llm(
         self,
@@ -323,16 +504,38 @@ class LLMService:
         user_prompt: str,
         rag_context: Optional[str] = None,
         conversation_history: Optional[List[Dict[str, str]]] = None,
+        user_id: Optional[str] = "guest",
     ) -> Dict[str, Any]:
         """
-        Executes a prompt against the active BYOK LLM engine with optional RAG context injection
-        and full multi-turn conversational memory.
+        Executes a prompt against the active BYOK LLM engine with:
+        - 5,000-token account quota enforcement.
+        - Detailed HTTP 429 limit detection (temporary RPM/TPM vs daily TPD exhaustion).
+        - Cooldown-protected email alerts to devashish0716@gmail.com.
+        - Automatic graceful fallback to secondary providers (e.g. Gemini).
+        - No endless retry loops.
         """
+        uid = user_id or "guest"
         provider = _BYOK_STORE.get("provider", "groq")
         model = self.sanitize_model(provider, _BYOK_STORE.get("model"))
         api_key = self.get_active_api_key(provider)
+        has_custom_byok = bool(_BYOK_STORE.get("custom_api_key"))
 
-        # Context grounding
+        # ── 1. Enforce 5k Platform Free Tier Token Limit ────────────
+        if not has_custom_byok:
+            user_used = _USER_TOKENS.get(uid, 0)
+            if user_used >= USER_FREE_TIER_TOKEN_LIMIT:
+                return {
+                    "provider": "free_tier",
+                    "model": model,
+                    "has_key": False,
+                    "error": "free_quota_exceeded",
+                    "content": None,
+                    "tokens_used": user_used,
+                    "limit": USER_FREE_TIER_TOKEN_LIMIT,
+                    "message": "You have consumed your 5,000 free tokens. Please enter your personal BYOK key in AI Settings.",
+                }
+
+        # Build context block
         context_block = ""
         if rag_context and rag_context.strip():
             context_block = (
@@ -340,7 +543,6 @@ class LLMService:
                 f"{rag_context.strip()}\n"
                 "--------------------------------------------------------------------\n"
             )
-
         full_user_content = f"{context_block}\n{user_prompt}".strip()
 
         # Build multi-turn messages array
@@ -353,268 +555,171 @@ class LLMService:
                     formatted_messages.append({"role": r, "content": c})
         formatted_messages.append({"role": "user", "content": full_user_content})
 
-        # ── 1. Groq Cloud (Free Tier & Fast) ───────────────────────
-        if provider == "groq":
-            if not api_key:
-                return {
-                    "provider": "groq",
-                    "model": model,
-                    "has_key": False,
-                    "error": "missing_key",
-                    "content": None,
-                }
-
-            url = "https://api.groq.com/openai/v1/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            }
-            payload = {
-                "model": model or "qwen/qwen3.8-27b",
-                "messages": formatted_messages,
-                "temperature": 0.3,
-                "max_tokens": 2048,
-            }
-
-            try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    res = await client.post(url, json=payload, headers=headers)
-                    if res.status_code == 200:
-                        RateLimitManager.clear_flag("groq")
-                        data = res.json()
-                        text = data["choices"][0]["message"]["content"]
-                        return {
-                            "provider": "groq",
-                            "model": model,
-                            "has_key": True,
-                            "content": text.strip(),
-                        }
-                    elif res.status_code == 429 or "rate_limit" in res.text.lower():
-                        err_text = res.text
-                        try:
-                            err_text = res.json().get("error", {}).get("message", err_text)
-                        except Exception:
-                            pass
-                        retry_after = 60
-                        try:
-                            retry_after = int(res.headers.get("retry-after", 60))
-                        except Exception:
-                            pass
-                        flag = RateLimitManager.raise_flag(
-                            provider="groq",
-                            model=model,
-                            status_code=res.status_code,
-                            error_message=err_text,
-                            retry_after_seconds=retry_after,
-                        )
-                        return {
-                            "provider": "groq",
-                            "model": model,
-                            "has_key": True,
-                            "error": "rate_limit_exceeded",
-                            "rate_limit_flag": flag,
-                            "content": None,
-                        }
-                    else:
-                        print(f"Groq API error {res.status_code}: {res.text}")
-                        # Auto-heal: If model was decommissioned or not found, automatically retry with flagship active model
-                        if ("model_decommissioned" in res.text or "does not exist" in res.text or res.status_code in (400, 404)) and model != "llama-3.3-70b-versatile":
-                            fallback_payload = {**payload, "model": "llama-3.3-70b-versatile"}
-                            retry_res = await client.post(url, json=fallback_payload, headers=headers)
-                            if retry_res.status_code == 200:
-                                RateLimitManager.clear_flag("groq")
-                                data = retry_res.json()
-                                text = data["choices"][0]["message"]["content"]
-                                return {
-                                    "provider": "groq",
-                                    "model": "llama-3.3-70b-versatile",
-                                    "has_key": True,
-                                    "content": text.strip(),
-                                }
-                        return {
-                            "provider": "groq",
-                            "model": model,
-                            "has_key": True,
-                            "error": f"Groq HTTP {res.status_code}: {res.text[:200]}",
-                            "content": None,
-                        }
-            except Exception as e:
-                print(f"Groq API request failed: {e}")
-                return {"provider": "groq", "model": model, "has_key": True, "error": str(e), "content": None}
-
-        # ── 2. Google Gemini ──────────────────────────────────────
-        elif provider == "gemini":
-            if not api_key:
-                return {
-                    "provider": "gemini",
-                    "model": model,
-                    "has_key": False,
-                    "error": "missing_key",
-                    "content": None,
-                }
-
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-            payload = {
-                "contents": [
-                    {
-                        "role": "user",
-                        "parts": [
-                            {"text": f"{system_prompt}\n\n{full_user_content}"}
-                        ]
+        # ── 2. Check if active provider is currently flagged as Exhausted ───
+        if RateLimitManager.is_exhausted(provider):
+            fallback_provider = self.get_fallback_provider(exclude_provider=provider)
+            if fallback_provider:
+                print(f"[PRE-EMPTIVE FALLBACK] {provider} daily quota is exhausted. Rerouting to {fallback_provider}!")
+                fallback_key = self.get_active_api_key(fallback_provider)
+                fallback_model = self.sanitize_model(fallback_provider, None)
+                fb_res = await self._execute_provider_call(
+                    fallback_provider, fallback_model, fallback_key, system_prompt, full_user_content, formatted_messages
+                )
+                if fb_res["status_code"] == 200:
+                    text = fb_res["body"].get("content") or fb_res["body"].get("choices", [{}])[0].get("message", {}).get("content", "")
+                    return {
+                        "provider": fallback_provider,
+                        "model": fallback_model,
+                        "has_key": True,
+                        "content": text.strip(),
+                        "fallback_used": True,
+                        "fallback_provider": fallback_provider,
+                        "original_provider": provider,
                     }
-                ],
-                "generationConfig": {
-                    "temperature": 0.4,
-                    "maxOutputTokens": 2048,
-                }
-            }
-
-            try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    res = await client.post(url, json=payload)
-                    if res.status_code == 200:
-                        RateLimitManager.clear_flag("gemini")
-                        data = res.json()
-                        candidates = data.get("candidates", [])
-                        if candidates:
-                            parts = candidates[0].get("content", {}).get("parts", [])
-                            text = "".join([p.get("text", "") for p in parts])
-                            return {
-                                "provider": "gemini",
-                                "model": model,
-                                "has_key": True,
-                                "content": text.strip(),
-                            }
-                    elif res.status_code == 429 or "RESOURCE_EXHAUSTED" in res.text or "quota" in res.text.lower():
-                        err_text = res.text
-                        try:
-                            err_text = res.json().get("error", {}).get("message", err_text)
-                        except Exception:
-                            pass
-                        flag = RateLimitManager.raise_flag(
-                            provider="gemini",
-                            model=model,
-                            status_code=res.status_code,
-                            error_message=err_text,
-                            retry_after_seconds=60,
-                        )
-                        return {
-                            "provider": "gemini",
-                            "model": model,
-                            "has_key": True,
-                            "error": "rate_limit_exceeded",
-                            "rate_limit_flag": flag,
-                            "content": None,
-                        }
-                    else:
-                        print(f"Gemini API error {res.status_code}: {res.text}")
-            except Exception as e:
-                print(f"Gemini API request failed: {e}")
-
-        # ── 3. OpenAI ─────────────────────────────────────────────
-        elif provider == "openai":
-            if not api_key:
+            else:
+                status_info = RateLimitManager.get_provider_status(provider)
                 return {
-                    "provider": "openai",
+                    "provider": provider,
                     "model": model,
-                    "has_key": False,
-                    "error": "missing_key",
+                    "has_key": bool(api_key),
+                    "error": "quota_exhausted",
                     "content": None,
+                    "message": status_info.get("recommendation", "Daily quota reached. Admin alerted."),
                 }
 
-            url = "https://api.openai.com/v1/chat/completions"
-            headers = {"Authorization": f"Bearer {api_key}"}
-            payload = {
-                "model": model or "gpt-4o",
-                "messages": formatted_messages,
-                "temperature": 0.4,
-                "max_tokens": 2048,
-            }
+        # ── 3. Execute Primary Request ─────────────────────────────
+        try:
+            call_res = await self._execute_provider_call(
+                provider, model, api_key, system_prompt, full_user_content, formatted_messages
+            )
+        except Exception as e:
+            return {"provider": provider, "model": model, "has_key": bool(api_key), "error": str(e), "content": None}
 
-            try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    res = await client.post(url, json=payload, headers=headers)
-                    if res.status_code == 200:
-                        RateLimitManager.clear_flag("openai")
-                        data = res.json()
-                        text = data["choices"][0]["message"]["content"]
-                        return {
-                            "provider": "openai",
-                            "model": model,
-                            "has_key": True,
-                            "content": text.strip(),
-                        }
-                    elif res.status_code == 429 or "rate_limit" in res.text.lower() or "insufficient_quota" in res.text.lower():
-                        err_text = res.text
+        # ── 4. Handle Successful Execution ─────────────────────────
+        if call_res["status_code"] == 200:
+            RateLimitManager.clear_flag(provider)
+            if provider == "groq":
+                text = call_res["body"]["choices"][0]["message"]["content"]
+                tokens_consumed = call_res["body"].get("usage", {}).get("total_tokens", len(full_user_content) // 4 + len(text) // 4)
+            else:
+                text = call_res["body"].get("content", "")
+                tokens_consumed = len(full_user_content) // 4 + len(text) // 4
+
+            if not has_custom_byok:
+                _USER_TOKENS[uid] = _USER_TOKENS.get(uid, 0) + tokens_consumed
+                global _PLATFORM_MASTER_TOKENS, _QUOTA_ALERT_SENT
+                _PLATFORM_MASTER_TOKENS += tokens_consumed
+
+                # Check master key alert threshold (guarded by AlertCooldownManager)
+                if _PLATFORM_MASTER_TOKENS >= PLATFORM_GROQ_ALERT_THRESHOLD:
+                    if AlertCooldownManager.can_send_alert("groq_threshold_warning", cooldown_seconds=900):
+                        AlertCooldownManager.record_alert_sent("groq_threshold_warning")
                         try:
-                            err_text = res.json().get("error", {}).get("message", err_text)
-                        except Exception:
-                            pass
-                        flag = RateLimitManager.raise_flag(
-                            provider="openai",
-                            model=model,
-                            status_code=res.status_code,
-                            error_message=err_text,
-                            retry_after_seconds=60,
-                        )
-                        return {
-                            "provider": "openai",
-                            "model": model,
-                            "has_key": True,
-                            "error": "rate_limit_exceeded",
-                            "rate_limit_flag": flag,
-                            "content": None,
-                        }
-                    else:
-                        print(f"OpenAI API error {res.status_code}: {res.text}")
-            except Exception as e:
-                print(f"OpenAI API request failed: {e}")
+                            from app.services.email_service import EmailService
+                            asyncio.create_task(
+                                EmailService().send_quota_warning_email(
+                                    tokens_used=_PLATFORM_MASTER_TOKENS,
+                                    limit=100000,
+                                    reason="Platform Master Groq Key has < 5k tokens remaining (~1k headroom)",
+                                    alert_type="groq_threshold_warning",
+                                )
+                            )
+                        except Exception as e:
+                            print(f"[Email Alert] Warning failed: {e}")
 
-        # ── 4. Ollama (Local) ─────────────────────────────────────
-        elif provider == "ollama":
-            endpoint = _BYOK_STORE.get("custom_endpoint") or "http://localhost:11434"
-            url = f"{endpoint}/api/chat"
-            payload = {
-                "model": model or "llama3.2",
-                "messages": formatted_messages,
-                "stream": False
+            return {
+                "provider": provider,
+                "model": model,
+                "has_key": True,
+                "content": text.strip(),
+                "tokens_used": tokens_consumed,
             }
-            try:
-                async with httpx.AsyncClient(timeout=45.0) as client:
-                    res = await client.post(url, json=payload)
-                    if res.status_code == 200:
-                        data = res.json()
-                        text = data.get("message", {}).get("content", "")
-                        return {
-                            "provider": "ollama",
-                            "model": model,
-                            "has_key": True,
-                            "content": text.strip(),
-                        }
-                    else:
-                        return {
-                            "provider": "ollama",
-                            "model": model,
-                            "has_key": True,
-                            "error": f"Ollama HTTP {res.status_code}",
-                            "content": None,
-                        }
-            except (httpx.ConnectError, httpx.ConnectTimeout):
-                return {
-                    "provider": "ollama",
-                    "model": model,
-                    "has_key": False,
-                    "error": "ollama_offline",
-                    "content": None,
-                }
-            except Exception as e:
-                print(f"Ollama request failed: {e}")
 
-        # Fallback: No active key or unreachable provider
+        # ── 5. Handle Rate Limits (HTTP 429) & Quota Limits ─────────
+        if call_res["status_code"] == 429 or "rate_limit" in call_res["raw_text"].lower() or "quota" in call_res["raw_text"].lower():
+            err_text = call_res["raw_text"]
+            try:
+                import json
+                err_text = json.loads(call_res["raw_text"]).get("error", {}).get("message", err_text)
+            except Exception:
+                pass
+
+            analysis = RateLimitManager.classify_error(
+                provider=provider,
+                status_code=call_res["status_code"],
+                response_text=err_text,
+                headers=call_res["headers"],
+            )
+
+            flag = RateLimitManager.raise_flag(
+                provider=provider,
+                model=model,
+                status_code=call_res["status_code"],
+                error_message=err_text,
+                limit_type=analysis["limit_type"],
+                limit_scope=analysis["limit_scope"],
+                retry_after_seconds=analysis["retry_after_seconds"],
+                recommendation=analysis["recommendation"],
+            )
+
+            # Email Alert: Only send on true daily quota exhaustion, guarded by 15-minute cooldown
+            if analysis["is_exhausted"]:
+                alert_key = f"{provider}_daily_exhausted"
+                if AlertCooldownManager.can_send_alert(alert_key, cooldown_seconds=900):
+                    AlertCooldownManager.record_alert_sent(alert_key)
+                    try:
+                        from app.services.email_service import EmailService
+                        asyncio.create_task(
+                            EmailService().send_quota_warning_email(
+                                tokens_used=_PLATFORM_MASTER_TOKENS,
+                                limit=100000,
+                                reason=f"{provider.title()} Daily Quota Depleted: {err_text[:180]}",
+                                alert_type=alert_key,
+                            )
+                        )
+                    except Exception as e:
+                        print(f"[Email Alert] Quota exhaustion email failed: {e}")
+
+            # Graceful Fallback: Seamlessly failover to secondary provider if available
+            fallback_provider = self.get_fallback_provider(exclude_provider=provider)
+            if fallback_provider:
+                print(f"[GRACEFUL FALLBACK] {provider} encountered {analysis['limit_type']}. Rerouting to {fallback_provider}...")
+                fallback_key = self.get_active_api_key(fallback_provider)
+                fallback_model = self.sanitize_model(fallback_provider, None)
+                fb_res = await self._execute_provider_call(
+                    fallback_provider, fallback_model, fallback_key, system_prompt, full_user_content, formatted_messages
+                )
+                if fb_res["status_code"] == 200:
+                    text = fb_res["body"].get("content") or fb_res["body"].get("choices", [{}])[0].get("message", {}).get("content", "")
+                    return {
+                        "provider": fallback_provider,
+                        "model": fallback_model,
+                        "has_key": True,
+                        "content": text.strip(),
+                        "fallback_used": True,
+                        "fallback_provider": fallback_provider,
+                        "original_provider": provider,
+                        "notice": f"DevResolve seamlessly rerouted this inquiry to {fallback_provider.title()} while {provider.title()} cools down.",
+                    }
+
+            # No fallback provider configured -> Return clear, structured status
+            return {
+                "provider": provider,
+                "model": model,
+                "has_key": True,
+                "error": "quota_exhausted" if analysis["is_exhausted"] else "temporary_rate_limit",
+                "rate_limit_flag": flag,
+                "is_exhausted": analysis["is_exhausted"],
+                "retry_after_seconds": analysis["retry_after_seconds"],
+                "message": analysis["recommendation"],
+                "content": None,
+            }
+
+        # Other API Errors (e.g. 400, 401, 500)
         return {
             "provider": provider,
             "model": model,
-            "has_key": False,
-            "error": "missing_key",
+            "has_key": True,
+            "error": f"API HTTP {call_res['status_code']}: {call_res['raw_text'][:200]}",
             "content": None,
         }

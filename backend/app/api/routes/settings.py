@@ -30,8 +30,9 @@ class BYOKTestRequest(BaseModel):
 
 @router.get("/ai", summary="Get current AI & BYOK settings")
 async def get_ai_settings(current_user: dict = Depends(get_current_user)):
-    """Retrieve current AI provider, model, and masked key status."""
-    return LLMService.get_byok_config()
+    """Retrieve current AI provider, model, free tier quota progress, and masked key status."""
+    user_id = current_user.get("auth_id", "guest")
+    return LLMService.get_byok_config(user_id=user_id)
 
 
 @router.post("/ai", summary="Save AI & BYOK settings")
@@ -40,16 +41,16 @@ async def save_ai_settings(
     current_user: dict = Depends(get_current_user),
 ):
     """Update runtime AI provider, model, and API key."""
+    user_id = current_user.get("auth_id", "guest")
     LLMService.update_byok_config(
         provider=payload.provider.lower().strip(),
         model=payload.model.strip(),
         api_key=payload.api_key.strip() if payload.api_key else None,
-        custom_endpoint=payload.custom_endpoint.strip() if payload.custom_endpoint else None,
     )
     return {
         "status": "success",
         "message": f"Updated AI reasoning engine to {payload.provider} ({payload.model})",
-        "config": LLMService.get_byok_config(),
+        "config": LLMService.get_byok_config(user_id=user_id),
     }
 
 
@@ -105,4 +106,84 @@ async def clear_rate_limit(
         "status": "success",
         "cleared": cleared,
         "message": f"Cleared rate limit flag for {payload.provider}",
+    }
+
+
+@router.get("/ai/ollama-status", summary="Check local Ollama installation and hardware readiness")
+async def get_ollama_status(
+    endpoint: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Returns live connectivity, model availability, CLI existence,
+    and system RAM checks for running local Ollama models.
+    """
+    return await LLMService.check_ollama_status(endpoint=endpoint)
+
+
+class MasterKeyReplacementRequest(BaseModel):
+    groq_api_key: str = Field(..., description="New master Groq API key (starts with gsk_)")
+
+
+@router.post("/ai/master-key", summary="Hot-replace the platform master Groq key")
+async def replace_master_key(
+    payload: MasterKeyReplacementRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Allows replacing the platform master Groq key at runtime with live verification.
+    No server restart or downtime required.
+    """
+    result = await LLMService.set_platform_master_key(payload.groq_api_key)
+    if result.get("status") != "success":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("message", "Master key replacement failed"),
+        )
+    return result
+
+
+@router.get("/ai/status", summary="Get detailed AI Engine and provider health")
+async def get_ai_provider_status(current_user: dict = Depends(get_current_user)):
+    """
+    Returns real-time provider health, temporary rate-limit countdown,
+    quota exhaustion indicators, and fallback readiness.
+    """
+    from app.core.rate_limit_manager import RateLimitManager
+    user_id = current_user.get("auth_id", "guest")
+    cfg = LLMService.get_byok_config(user_id=user_id)
+    provider = cfg["provider"]
+    status_info = RateLimitManager.get_provider_status(provider)
+
+    return {
+        "status": "success",
+        "provider": provider,
+        "health": status_info,
+        "fallback_available": cfg.get("fallback_available", False),
+        "fallback_provider": cfg.get("fallback_provider"),
+        "free_tier": {
+            "tokens_used": cfg.get("free_tier_tokens_used", 0),
+            "limit": cfg.get("free_tier_limit", 5000),
+            "is_free_tier": cfg.get("is_free_tier", True),
+            "exceeded": cfg.get("free_tier_exceeded", False),
+        },
+    }
+
+
+@router.post("/ai/switch-to-cloud", summary="1-Click fallback from local Ollama to Groq Cloud")
+async def switch_to_cloud(
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Safely switches active reasoning engine to Groq Cloud (Free Tier),
+    releasing all local RAM/GPU resources and disconnecting from local daemons.
+    """
+    LLMService.update_byok_config(
+        provider="groq",
+        model="qwen/qwen3.8-27b",
+    )
+    return {
+        "status": "success",
+        "message": "Switched reasoning engine to Groq Cloud (0 Local RAM/GPU, Free Tier)",
+        "config": LLMService.get_byok_config(),
     }

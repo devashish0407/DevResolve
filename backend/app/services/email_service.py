@@ -253,6 +253,56 @@ class EmailService:
         """Asynchronously dispatches the email alert without blocking the API call."""
         return await asyncio.to_thread(self._send_sync, ticket)
 
+    async def send_quota_warning_email(
+        self,
+        tokens_used: int,
+        limit: int = 100000,
+        reason: str = "Quota Threshold Reached",
+        alert_type: str = "groq_daily_exhausted",
+    ) -> Dict[str, Any]:
+        """
+        Dispatches an urgent alert when the master Groq key approaches or depletes its daily capacity.
+        Guarded by AlertCooldownManager to prevent inbox flooding.
+        """
+        from app.core.rate_limit_manager import AlertCooldownManager
+
+        if not AlertCooldownManager.can_send_alert(alert_type, cooldown_seconds=900):
+            remaining_cd = AlertCooldownManager.get_remaining_cooldown(alert_type, 900)
+            print(f"[EMAIL ALERT SUPPRESSED] Alert '{alert_type}' is on cooldown ({remaining_cd}s remaining). Inbox protected.")
+            return {
+                "status": "cooldown_suppressed",
+                "note": f"Suppressed duplicate alert. Cooldown active for {remaining_cd}s",
+            }
+
+        AlertCooldownManager.record_alert_sent(alert_type)
+        remaining = max(0, limit - tokens_used)
+        ticket_data = {
+            "id": f"QUOTA-{datetime.utcnow().strftime('%H%M%S')}",
+            "title": f"URGENT: Master Groq API Key Limit Reached (~{remaining} tokens remaining)",
+            "description": (
+                f"Your DevResolve platform master Groq API key has consumed {tokens_used:,} tokens out of the {limit:,} estimated daily allowance.\n\n"
+                f"Trigger Reason: {reason}\n"
+                f"Remaining Headroom: ~{remaining:,} tokens\n\n"
+                "Action Required:\n"
+                "1. Log in to your Groq Cloud Console: https://console.groq.com/keys\n"
+                "2. Create a new API key.\n"
+                "3. Update GROQ_API_KEY in your Render environment variables or AI Engine settings so users continue enjoying free tier reasoning.\n"
+                "4. DevResolve has active cooldown monitoring, so you will not receive duplicate email notifications for 15 minutes."
+            ),
+            "priority": "critical",
+            "category": "ai_service",
+            "user_email": "system-monitor@devresolve.io",
+            "estimated_resolution": "Immediate Action Required",
+            "created_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+            "metadata": {
+                "cumulative_tokens": f"{tokens_used:,}",
+                "daily_limit": f"{limit:,}",
+                "remaining_tokens": f"{remaining:,}",
+                "alert_cooldown": "15 minutes (900s)",
+            },
+        }
+        return await self.send_ticket_notification(ticket_data)
+
 
 def get_dispatched_emails() -> List[Dict[str, Any]]:
     """Accessor for audit logs and tests."""

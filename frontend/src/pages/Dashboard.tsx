@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { api, Project } from '../lib/api';
 import NewInvestigationModal from '../components/NewInvestigationModal';
+import Footer from '../components/Footer';
 
 interface ProjectItem {
   id: string;
@@ -249,6 +250,9 @@ export default function Dashboard() {
           }
         }}
       />
+
+      {/* Footer */}
+      <Footer variant="dashboard" />
     </div>
   );
 }

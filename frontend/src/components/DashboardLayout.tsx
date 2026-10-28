@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
 import { api, Conversation, NotificationItem } from '../lib/api';
 import {
@@ -148,8 +148,12 @@ export default function DashboardLayout() {
         } flex flex-col border-r border-surface-border bg-dark-850 transition-all duration-300 ease-out`}
       >
         {/* Logo */}
-        <div className="flex items-center gap-3 px-4 h-16 border-b border-surface-border shrink-0">
-          <div className="w-8 h-8 rounded-lg bg-gradient-accent flex items-center justify-center shrink-0">
+        <Link
+          to="/"
+          className="flex items-center gap-3 px-4 h-16 border-b border-surface-border shrink-0 cursor-pointer hover:bg-dark-800/60 transition-colors"
+          title="Back to Landing Page"
+        >
+          <div className="w-8 h-8 rounded-lg bg-gradient-accent flex items-center justify-center shrink-0 shadow-sm">
             <Sparkles size={18} className="text-white" />
           </div>
           {!collapsed && (
@@ -157,7 +161,7 @@ export default function DashboardLayout() {
               DevResolve
             </span>
           )}
-        </div>
+        </Link>
 
         {/* New Investigation Button */}
         <div className="px-3 py-4">
@@ -406,18 +410,44 @@ export default function DashboardLayout() {
             {/* AI Engine (BYOK) Button */}
             <button
               onClick={() => setIsByokModalOpen(true)}
-              className="bg-dark-800 hover:bg-dark-750 border border-surface-border hover:border-accent-blue/50 rounded-lg px-3 py-1.5 text-xs text-slate-200 flex items-center gap-2 transition-colors shadow-sm"
-              title="Configure AI API Keys (Gemini, OpenAI, Ollama)"
+              className={`border rounded-lg px-3 py-1.5 text-xs flex items-center gap-2 transition-colors shadow-sm ${
+                aiConfig?.provider_status?.status === 'quota_exhausted'
+                  ? 'bg-rose-500/10 border-rose-500/40 text-rose-300 hover:bg-rose-500/20'
+                  : aiConfig?.provider_status?.status === 'temporarily_rate_limited'
+                  ? 'bg-amber-500/10 border-amber-500/40 text-amber-300 hover:bg-amber-500/20'
+                  : 'bg-dark-800 hover:bg-dark-750 border-surface-border hover:border-accent-blue/50 text-slate-200'
+              }`}
+              title={
+                aiConfig?.provider_status?.status === 'quota_exhausted'
+                  ? 'Platform Quota Exhausted: Admin notified. Click to enter personal BYOK key'
+                  : aiConfig?.provider_status?.status === 'temporarily_rate_limited'
+                  ? `Temporarily Rate-Limited: Cooling down (~${aiConfig.provider_status.retry_after_seconds}s)`
+                  : 'Configure AI API Keys (Groq, Gemini, OpenAI, Claude)'
+              }
             >
-              <div className="w-2 h-2 rounded-full bg-accent-blue animate-pulse" />
+              <div
+                className={`w-2 h-2 rounded-full ${
+                  aiConfig?.provider_status?.status === 'quota_exhausted'
+                    ? 'bg-rose-500 animate-ping'
+                    : aiConfig?.provider_status?.status === 'temporarily_rate_limited'
+                    ? 'bg-amber-400 animate-pulse'
+                    : 'bg-accent-blue animate-pulse'
+                }`}
+              />
               <span className="font-medium">
-                {aiConfig?.model
+                {aiConfig?.provider_status?.status === 'quota_exhausted'
+                  ? 'Quota Exhausted'
+                  : aiConfig?.provider_status?.status === 'temporarily_rate_limited'
+                  ? `Cooldown (${aiConfig.provider_status.retry_after_seconds}s)`
+                  : aiConfig?.is_free_tier
+                  ? 'Free Mode (Groq)'
+                  : aiConfig?.model
                   ? aiConfig.model.includes('gemini')
                     ? 'Gemini 1.5'
                     : aiConfig.model.includes('gpt')
                     ? 'GPT-4o'
                     : aiConfig.model
-                  : 'AI Engine (BYOK)'}
+                  : 'Free Mode (Groq)'}
               </span>
               <Zap size={13} className="text-amber-400" />
             </button>

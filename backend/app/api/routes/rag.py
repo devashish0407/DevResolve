@@ -1,18 +1,20 @@
 """
-RAG API Routes (Phase 03)
-Provides document chunking, semantic vector search, and hybrid retrieval.
-Indexed documents are stored in-memory and shared with the MCP tools.
+RAG & Document Lifecycle API Routes
+Provides:
+- Two-Tier Storage Modes: Temporary Analysis (5-day auto-expire) vs Persistent Workspace.
+- Document ingestion, AST chunking, semantic vector search, and hybrid retrieval.
+- Immediate retrieval invalidation upon document deletion.
+- Automated cleanup queue for expired documents.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from typing import List, Optional
-import os
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Any
 
 from app.core.security import get_current_user
 from app.services.rag_service import RAGService
+from app.services.document_lifecycle_service import DocumentLifecycleService
 from app.core.config import settings
-
 
 router = APIRouter()
 rag_service = RAGService(openai_api_key=settings.OPENAI_API_KEY)
@@ -31,6 +33,7 @@ class RAGMatch(BaseModel):
     end_line: int
     content: str
     similarity: float
+    document_id: Optional[str] = None
 
 
 class RAGQueryResponse(BaseModel):
@@ -39,23 +42,41 @@ class RAGQueryResponse(BaseModel):
     total_indexed: int = 0
 
 
+class DocumentIngestRequest(BaseModel):
+    name: str = Field(..., description="Document or file name")
+    content: str = Field(..., description="Text or source code content")
+    retention_mode: str = Field("persistent", description="'persistent' (permanent workspace) | 'temporary' (auto-expire)")
+    source_type: str = Field("code", description="code | log | documentation | pdf | other")
+    project_id: Optional[str] = None
+
+
 class RAGIndexRequest(BaseModel):
     file_path: str
     content: str
+    retention_mode: Optional[str] = "persistent"
 
+
+# ── Query Knowledge Base ──────────────────────────────────────────
 
 @router.post("/query", response_model=RAGQueryResponse, summary="Query RAG knowledge base")
 async def query_rag(payload: RAGQueryRequest, current_user: dict = Depends(get_current_user)):
-    """Search code and documentation using hybrid vector and keyword matching."""
+    """
+    Search code and documentation using hybrid vector and keyword matching.
+    STRICT SAFEGUARD: Only queries non-expired, non-deleted documents.
+    """
     from app.api.routes.integrations import get_rag_indexed_chunks
 
     query = payload.query.lower()
-    indexed_chunks = get_rag_indexed_chunks()
+    
+    # 1. Fetch valid searchable chunks from the lifecycle service
+    user_chunks = DocumentLifecycleService.get_searchable_chunks()
+    # 2. Also check global MCP indexed chunks
+    mcp_chunks = get_rag_indexed_chunks()
 
+    all_candidate_chunks = user_chunks + mcp_chunks
     matches: List[RAGMatch] = []
 
-    # Score user-indexed chunks first
-    for chunk in indexed_chunks:
+    for chunk in all_candidate_chunks:
         score = 0.45
         content_lower = chunk.get("content", "").lower()
         file_lower = chunk.get("file_path", "").lower()
@@ -75,10 +96,11 @@ async def query_rag(payload: RAGQueryRequest, current_user: dict = Depends(get_c
                 end_line=chunk.get("end_line", 1),
                 content=chunk.get("content", "")[:500],
                 similarity=round(score, 2),
+                document_id=chunk.get("document_id"),
             )
         )
 
-    # Pre-indexed knowledge samples representing repository modules (always available)
+    # Built-in diagnostic code snippets
     known_snippets = [
         {
             "file_path": "backend/app/db/session.py",
@@ -136,34 +158,91 @@ async def query_rag(payload: RAGQueryRequest, current_user: dict = Depends(get_c
     return RAGQueryResponse(
         query=payload.query,
         matches=matches[: payload.top_k],
-        total_indexed=len(indexed_chunks),
+        total_indexed=len(all_candidate_chunks),
     )
 
 
-@router.post("/index", summary="Index file into RAG")
+# ── Document Lifecycle Endpoints ─────────────────────────────────
+
+@router.post("/documents", summary="Upload and ingest a document with retention mode")
+async def ingest_document(payload: DocumentIngestRequest, current_user: dict = Depends(get_current_user)):
+    """
+    Ingests a document with a choice of storage modes:
+    - 'temporary': Auto-expires in 5 days (zero long-term storage burden)
+    - 'persistent': Saved permanently in your project workspace
+    """
+    user_id = current_user.get("auth_id", "guest")
+    doc = DocumentLifecycleService.register_document(
+        name=payload.name,
+        content=payload.content,
+        retention_mode=payload.retention_mode,
+        source_type=payload.source_type,
+        user_id=user_id,
+        project_id=payload.project_id,
+    )
+    return {"status": "success", "document": doc}
+
+
+@router.get("/documents", summary="List active documents with expiry countdowns")
+async def list_documents(project_id: Optional[str] = None, current_user: dict = Depends(get_current_user)):
+    """
+    Lists user-uploaded documents with retention badges, remaining time countdowns,
+    and storage metrics.
+    """
+    user_id = current_user.get("auth_id", "guest")
+    docs = DocumentLifecycleService.get_documents(user_id=user_id, project_id=project_id)
+    return {
+        "status": "success",
+        "total_documents": len(docs),
+        "documents": docs,
+    }
+
+
+@router.post("/documents/{doc_id}/convert-persistent", summary="Convert temporary document to persistent workspace")
+async def convert_document(doc_id: str, current_user: dict = Depends(get_current_user)):
+    """
+    Upgrades an ad-hoc temporary document into a permanent workspace document,
+    canceling the 5-day expiration timer.
+    """
+    doc = DocumentLifecycleService.convert_to_persistent(doc_id)
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found or already deleted.")
+    return {"status": "success", "message": "Document converted to Persistent Workspace.", "document": doc}
+
+
+@router.delete("/documents/{doc_id}", summary="Delete document and immediately invalidate search")
+async def delete_document(doc_id: str, current_user: dict = Depends(get_current_user)):
+    """
+    Immediately invalidates document and all its chunks from AI retrieval,
+    and removes file data.
+    """
+    success = DocumentLifecycleService.delete_document(doc_id)
+    if not success:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
+    return {"status": "success", "message": "Document deleted and purged from RAG retrieval."}
+
+
+@router.post("/cleanup", summary="Trigger expired document cleanup worker")
+async def trigger_cleanup(current_user: dict = Depends(get_current_user)):
+    """Runs the idempotent cleanup worker to purge expired temporary analysis documents."""
+    result = DocumentLifecycleService.cleanup_expired_documents()
+    return result
+
+
+@router.post("/index", summary="Index file into RAG (Backward compatible)")
 async def index_file(payload: RAGIndexRequest, current_user: dict = Depends(get_current_user)):
-    """Chunk and index file content using AST parser. Chunks are stored in-memory for RAG and MCP retrieval."""
-    from app.api.routes.integrations import add_rag_indexed_chunks, get_rag_indexed_chunks
-
-    chunks = rag_service.chunk_python_code(payload.file_path, payload.content)
-
-    # Store chunks in the shared global index
-    chunk_dicts = []
-    for chunk in chunks:
-        chunk_dicts.append({
-            "file_path": chunk.file_path,
-            "chunk_type": chunk.chunk_type,
-            "name": chunk.name,
-            "start_line": chunk.start_line,
-            "end_line": chunk.end_line,
-            "content": chunk.content,
-        })
-
-    add_rag_indexed_chunks(chunk_dicts)
-
+    """Registers and chunks file into DocumentLifecycleService."""
+    user_id = current_user.get("auth_id", "guest")
+    retention = payload.retention_mode or "temporary"
+    doc = DocumentLifecycleService.register_document(
+        name=payload.file_path,
+        content=payload.content,
+        retention_mode=retention,
+        user_id=user_id,
+    )
     return {
         "status": "success",
         "file_path": payload.file_path,
-        "chunks_indexed": len(chunks),
-        "total_indexed_chunks": len(get_rag_indexed_chunks()),
+        "chunks_indexed": doc.get("chunk_count", 0),
+        "document": doc,
     }

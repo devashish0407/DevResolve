@@ -18,6 +18,21 @@ class MessageCreate(MessageBase):
     metadata: Optional[Dict[str, Any]] = None
 
 
+class MessageSourceResponse(BaseModel):
+    id: uuid.UUID
+    message_id: uuid.UUID
+    document_id: Optional[uuid.UUID] = None
+    chunk_id: Optional[uuid.UUID] = None
+    source_title: str
+    chunk_snippet: Optional[str] = None
+    relevance_score: Optional[float] = None
+    is_source_available: bool = True
+    retention_notice: Optional[str] = "Active Source"
+
+    class Config:
+        from_attributes = True
+
+
 class MessageResponse(MessageBase):
     id: uuid.UUID
     conversation_id: uuid.UUID
@@ -26,6 +41,7 @@ class MessageResponse(MessageBase):
     role: str  # user, assistant, system
     sequence_number: int
     metadata: Optional[Dict[str, Any]] = None
+    sources: List[MessageSourceResponse] = []
     created_at: datetime
 
     class Config:
@@ -35,6 +51,9 @@ class MessageResponse(MessageBase):
 class ConversationBase(BaseModel):
     title: str = Field("New Incident Investigation", max_length=255)
     severity: str = "medium"  # critical, high, medium, low
+    retention_mode: Optional[str] = "persistent"  # persistent | temporary
+    expires_at: Optional[datetime] = None
+    is_expired: Optional[bool] = False
 
 
 class ConversationCreate(ConversationBase):
