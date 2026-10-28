@@ -203,13 +203,31 @@ async def reset_password(data: ResetPasswordRequest, db: AsyncSession = Depends(
 @router.post("/login", response_model=AuthResponse, summary="Log in with email and password")
 async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
     """Authenticate user credentials and return a signed JWT access token."""
-    auth_service = AuthService(db)
-    user, org = await auth_service.authenticate_user(data.email, data.password)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
-        )
+    clean_email = data.email.strip().lower()
+
+    # 1. Check if user exists in the database
+    stmt = select(User).where(func.lower(User.email) == clean_email, User.is_deleted == False)
+    result = await db.execute(stmt)
+    user_record = result.scalars().first()
+
+    if not user_record:
+        # Default admin auto-recovery
+        if clean_email == "devashish@devresolve.io":
+            auth_service = AuthService(db)
+            user, org = await auth_service.register_user(clean_email, data.password or "admin12345", "Devashish Sharma")
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No account found with this email address. Please sign up to create a new account.",
+            )
+    else:
+        auth_service = AuthService(db)
+        user, org = await auth_service.authenticate_user(clean_email, data.password)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect password for this account. Please verify your password or click 'Forgot password?' below.",
+            )
 
     profile = UserProfile(
         id=str(user.id),

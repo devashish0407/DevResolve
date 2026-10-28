@@ -95,8 +95,36 @@ export default function LoginPage() {
           <p className="text-sm text-slate-400 mb-6">Sign in to continue to DevResolve</p>
 
           {error && (
-            <div className="mb-4 p-3 rounded-lg bg-status-danger/10 border border-status-danger/30 text-xs text-status-danger">
-              {error}
+            <div className="mb-5 p-3.5 rounded-xl bg-status-danger/10 border border-status-danger/30 text-xs text-status-danger flex items-start gap-2.5 shadow-lg shadow-status-danger/5 animate-fade-in">
+              <AlertCircle size={16} className="text-status-danger shrink-0 mt-0.5" />
+              <div className="flex-1 font-medium leading-relaxed">
+                <div>{error}</div>
+                {error.toLowerCase().includes('no account found') && (
+                  <div className="mt-2 pt-2 border-t border-status-danger/20">
+                    <Link
+                      to="/signup"
+                      className="text-white hover:text-accent-blue font-semibold underline inline-flex items-center gap-1 transition-colors"
+                    >
+                      <span>Create an account now →</span>
+                    </Link>
+                  </div>
+                )}
+                {error.toLowerCase().includes('incorrect password') && (
+                  <div className="mt-2 pt-2 border-t border-status-danger/20">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setForgotEmail(email);
+                        setShowForgotModal(true);
+                        setError(null);
+                      }}
+                      className="text-white hover:text-accent-blue font-semibold underline inline-flex items-center gap-1 transition-colors"
+                    >
+                      <span>Forgot password? Reset it here →</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
