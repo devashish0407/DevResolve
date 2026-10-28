@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   Ticket,
   AlertCircle,
+  Plus,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import RaiseTicketModal from '../components/RaiseTicketModal';
@@ -57,13 +58,15 @@ const defaultAgentSteps: AgentStepState[] = [
 ];
 
 export default function ChatPage() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const conversationId = searchParams.get('id');
+  const isNewParam = searchParams.get('new') === 'true';
   const projectParamId = searchParams.get('project');
   const projectParamName = searchParams.get('projectName');
   const tabParam = searchParams.get('tab');
 
+  const [activeConvId, setActiveConvId] = useState<string | null>(conversationId);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [isInvestigating, setIsInvestigating] = useState(false);
@@ -173,19 +176,58 @@ export default function ChatPage() {
     if (tabParam === 'report') setActiveTab('report');
   }, [projectParamId, projectParamName, tabParam]);
 
-  // Load existing conversation if id is in query params
+  // Keep activeConvId in sync with conversationId param
+  useEffect(() => {
+    setActiveConvId(conversationId);
+  }, [conversationId]);
+
+  // Load existing conversation or auto-restore latest
   useEffect(() => {
     // If currently running an investigation stream, do not wipe
     if (isInvestigatingRef.current) return;
 
     if (!conversationId) {
-      setMessages([]);
-      setSteps(defaultAgentSteps);
-      setLiveEvidence([]);
-      setLiveDiff(null);
-      setLiveTestResults(null);
-      setIsInvestigating(false);
-      setInput('');
+      if (isNewParam) {
+        setMessages([]);
+        setSteps(defaultAgentSteps);
+        setLiveEvidence([]);
+        setLiveDiff(null);
+        setLiveTestResults(null);
+        setIsInvestigating(false);
+        setInput('');
+        return;
+      }
+
+      // Auto-restore user's most recent active conversation if one exists
+      let isMounted = true;
+      async function autoRestoreLatest() {
+        try {
+          const res = await api.getConversations();
+          if (isMounted && res && res.conversations && res.conversations.length > 0) {
+            const latest = res.conversations[0];
+            setActiveConvId(latest.id);
+            setSearchParams(
+              {
+                id: latest.id,
+                project: latest.project_id || '',
+                projectName: projectParamName || '',
+              },
+              { replace: true }
+            );
+          } else if (isMounted) {
+            setMessages([]);
+            setSteps(defaultAgentSteps);
+            setLiveEvidence([]);
+            setLiveDiff(null);
+            setLiveTestResults(null);
+            setIsInvestigating(false);
+          }
+        } catch (err) {
+          console.warn('Failed to auto-restore latest conversation', err);
+        }
+      }
+
+      autoRestoreLatest();
       return;
     }
 
@@ -220,6 +262,8 @@ export default function ChatPage() {
               });
             }
           }
+        } else {
+          setMessages([]);
         }
       } catch (err) {
         console.warn('Could not fetch existing conversation detail', err);
@@ -227,7 +271,7 @@ export default function ChatPage() {
     }
 
     loadConversation();
-  }, [conversationId]);
+  }, [conversationId, isNewParam]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -253,11 +297,11 @@ export default function ChatPage() {
     };
     setMessages((prev) => [...prev, userMsg]);
 
-    let activeConvId = conversationId;
+    let targetConvId = activeConvId || conversationId;
 
     try {
       // 1. Create or ensure conversation exists in backend
-      if (!activeConvId) {
+      if (!targetConvId) {
         const title = userMessageText.split('\n')[0].substring(0, 50) || 'Incident Investigation';
         const cleanProjectId =
           selectedProjectId && selectedProjectId !== 'undefined' && selectedProjectId !== 'null'
@@ -270,17 +314,20 @@ export default function ChatPage() {
           userMessageText,
           selectedProjectName || 'Main Workspace'
         );
-        activeConvId = createdConv.id;
-        // Replace URL state without full page re-mount
-        window.history.replaceState(
-          null,
-          '',
-          `?id=${activeConvId}&project=${cleanProjectId || createdConv.project_id || ''}&projectName=${encodeURIComponent(
-            selectedProjectName || 'Main Workspace'
-          )}`
+        targetConvId = createdConv.id;
+        setActiveConvId(createdConv.id);
+        setSearchParams(
+          {
+            id: createdConv.id,
+            project: cleanProjectId || createdConv.project_id || '',
+            projectName: selectedProjectName || 'Main Workspace',
+          },
+          { replace: true }
         );
+        window.dispatchEvent(new CustomEvent('devresolve:conversation-updated'));
       } else {
-        await api.postMessage(activeConvId, userMessageText, 'user');
+        await api.postMessage(targetConvId, userMessageText, 'user');
+        window.dispatchEvent(new CustomEvent('devresolve:conversation-updated'));
       }
 
       // 2. Stream agent loop from backend
@@ -291,7 +338,7 @@ export default function ChatPage() {
       let isChatResponse = false;
 
       const stopStream = api.listenInvestigationStream(
-        activeConvId,
+        targetConvId,
         selectedProjectName || 'Service Repository',
         userMessageText,
         (eventType, data) => {
@@ -355,9 +402,10 @@ export default function ChatPage() {
 
               setMessages((prev) => [...prev, finalAssistantMsg]);
 
-              if (activeConvId) {
+              if (targetConvId) {
                 api
-                  .postMessage(activeConvId, finalAssistantMsg.content, 'assistant')
+                  .postMessage(targetConvId, finalAssistantMsg.content, 'assistant')
+                  .then(() => window.dispatchEvent(new CustomEvent('devresolve:conversation-updated')))
                   .catch((err) => console.warn('Could not persist assistant message', err));
               }
             } else {
@@ -379,15 +427,16 @@ export default function ChatPage() {
 
               setMessages((prev) => [...prev, finalAssistantMsg]);
 
-              if (activeConvId) {
+              if (targetConvId) {
                 api
-                  .postMessage(activeConvId, finalAssistantMsg.content, 'assistant', {
+                  .postMessage(targetConvId, finalAssistantMsg.content, 'assistant', {
                     evidence: collectedEvidence,
                     diff: collectedDiff,
                     tests: collectedTests
                       ? { passed: collectedTests.passed, failed: collectedTests.failed, status: collectedTests.status }
                       : undefined,
                   })
+                  .then(() => window.dispatchEvent(new CustomEvent('devresolve:conversation-updated')))
                   .catch((err) => console.warn('Could not persist assistant message', err));
               }
             }
@@ -541,6 +590,23 @@ ${liveDiff || '# No unified diff generated'}
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setActiveConvId(null);
+                setMessages([]);
+                setSteps(defaultAgentSteps);
+                setLiveEvidence([]);
+                setLiveDiff(null);
+                setLiveTestResults(null);
+                setInput('');
+                setSearchParams({ new: 'true' }, { replace: true });
+              }}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 bg-accent-blue/15 text-accent-blue border border-accent-blue/30 hover:bg-accent-blue/25 transition-all shadow-sm cursor-pointer"
+              title="Start a new investigation session"
+            >
+              <Plus size={14} />
+              <span>New Chat</span>
+            </button>
             <button
               onClick={() => handleOpenTicket()}
               className="px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 bg-dark-800 text-amber-300 border border-amber-500/30 hover:bg-amber-500/10 transition-all shadow-sm"

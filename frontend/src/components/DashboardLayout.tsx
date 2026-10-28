@@ -91,10 +91,17 @@ export default function DashboardLayout() {
 
     loadData();
     fetchAIConfig();
+
+    const handleUpdate = () => {
+      loadData();
+    };
+    window.addEventListener('devresolve:conversation-updated', handleUpdate);
+
     const interval = setInterval(loadData, 15000);
     return () => {
       mounted = false;
       clearInterval(interval);
+      window.removeEventListener('devresolve:conversation-updated', handleUpdate);
     };
   }, []);
 
@@ -218,42 +225,49 @@ export default function DashboardLayout() {
                   </button>
                 </div>
               ) : (
-                chats.map((chat) => (
-                  <div
-                    key={chat.id}
-                    onClick={() => navigate(`/app/chat?id=${chat.id}`)}
-                    className="nav-item w-full text-left group cursor-pointer flex items-center justify-between relative hover:bg-dark-800"
-                  >
-                    <div className="flex-1 min-w-0 pr-2">
-                      <p className="text-sm truncate text-slate-300 group-hover:text-white">
-                        {chat.title}
-                      </p>
-                      <p className="text-[11px] text-slate-500">
-                        {chat.last_message_at
-                          ? new Date(chat.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                          : 'Recent'}
-                      </p>
+                chats.map((chat) => {
+                  const isActive = window.location.search.includes(chat.id);
+                  return (
+                    <div
+                      key={chat.id}
+                      onClick={() => navigate(`/app/chat?id=${chat.id}`)}
+                      className={`nav-item w-full text-left group cursor-pointer flex items-center justify-between relative transition-all ${
+                        isActive
+                          ? 'bg-dark-800 text-white font-medium border-l-2 border-accent-blue shadow-sm'
+                          : 'hover:bg-dark-800/60 text-slate-300'
+                      }`}
+                    >
+                      <div className="flex-1 min-w-0 pr-2">
+                        <p className="text-sm truncate group-hover:text-white">
+                          {chat.title}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          {chat.last_message_at
+                            ? new Date(chat.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                            : 'Recent'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          onClick={(e) => handleDeleteChat(chat.id, e)}
+                          title="Delete investigation"
+                          className="opacity-0 group-hover:opacity-100 p-1 text-slate-500 hover:text-rose-400 hover:bg-dark-700 rounded transition-all"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                        <span
+                          className={`w-2 h-2 rounded-full shrink-0 ${
+                            chat.status === 'resolved'
+                              ? 'bg-status-success'
+                              : chat.status === 'investigating'
+                              ? 'bg-status-warning'
+                              : 'bg-accent-blue'
+                          }`}
+                        />
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        onClick={(e) => handleDeleteChat(chat.id, e)}
-                        title="Delete investigation"
-                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-500 hover:text-rose-400 hover:bg-dark-700 rounded transition-all"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                      <span
-                        className={`w-2 h-2 rounded-full shrink-0 ${
-                          chat.status === 'resolved'
-                            ? 'bg-status-success'
-                            : chat.status === 'investigating'
-                            ? 'bg-status-warning'
-                            : 'bg-accent-blue'
-                        }`}
-                      />
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>

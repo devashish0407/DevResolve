@@ -133,17 +133,17 @@ class ConversationService:
     ) -> List[Conversation]:
         stmt = (
             select(Conversation)
-            .join(Project, Project.id == Conversation.project_id)
-            .join(OrganizationMember, OrganizationMember.organization_id == Project.organization_id)
+            .outerjoin(Project, Project.id == Conversation.project_id)
+            .outerjoin(OrganizationMember, OrganizationMember.organization_id == Project.organization_id)
             .where(
-                OrganizationMember.user_id == user_id,
+                ((Conversation.user_id == user_id) | (OrganizationMember.user_id == user_id)),
                 Conversation.is_deleted == False,
             )
         )
         if project_id:
             stmt = stmt.where(Conversation.project_id == project_id)
 
-        stmt = stmt.order_by(desc(Conversation.last_message_at))
+        stmt = stmt.order_by(desc(Conversation.last_message_at)).distinct()
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
@@ -152,16 +152,16 @@ class ConversationService:
     ) -> Tuple[Conversation, List[Message]]:
         stmt = (
             select(Conversation)
-            .join(Project, Project.id == Conversation.project_id)
-            .join(OrganizationMember, OrganizationMember.organization_id == Project.organization_id)
+            .outerjoin(Project, Project.id == Conversation.project_id)
+            .outerjoin(OrganizationMember, OrganizationMember.organization_id == Project.organization_id)
             .where(
                 Conversation.id == conversation_id,
-                OrganizationMember.user_id == user_id,
+                ((Conversation.user_id == user_id) | (OrganizationMember.user_id == user_id)),
                 Conversation.is_deleted == False,
             )
         )
         result = await self.db.execute(stmt)
-        conv = result.scalar_one_or_none()
+        conv = result.scalars().first()
         if not conv:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

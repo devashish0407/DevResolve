@@ -102,6 +102,7 @@ export default function NewInvestigationModal({
       );
 
       onClose();
+      window.dispatchEvent(new CustomEvent('devresolve:conversation-updated'));
       if (onCreated) {
         onCreated(conv.id);
       }
