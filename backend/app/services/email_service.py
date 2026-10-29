@@ -69,7 +69,7 @@ class EmailService:
                     "Authorization": f"Bearer {resend_key.strip()}",
                     "Content-Type": "application/json",
                 }
-                from_addr = "DevResolve <onboarding@resend.dev>" if not self.from_email or "devresolve.io" in self.from_email else f"{self.from_name} <{self.from_email}>"
+                from_addr = "DevResolve <onboarding@resend.dev>"
                 payload = {
                     "from": from_addr,
                     "to": [to_email],
