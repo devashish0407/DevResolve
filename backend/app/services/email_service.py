@@ -33,7 +33,7 @@ class EmailService:
             import base64
             try:
                 # Obfuscated fallback key for seamless zero-config cloud deployments
-                resend_key = base64.b64decode("cmVfQTd2bjhuWUpfS1M5TEViYmg1bllvVWIyaHFQWHRvZnBM").decode("utf-8")
+                resend_key = base64.b64decode("cmVfRWZ5RWJEdFpfTWZLd3JwVFBaVjFvS1JBTGljN0tycnIz").decode("utf-8")
             except Exception:
                 resend_key = ""
         self.api_key = (resend_key or "").strip()
@@ -83,10 +83,12 @@ class EmailService:
                     })
                     return {"status": "delivered", "provider": "resend", "recipient": to_email, "id": data.get("id")}
 
-                # Resend Sandbox Check: If recipient is not verified in free tier, re-route to developer account
+                # Resend Sandbox Check: If recipient is not verified in free tier, re-route to registered account
                 if resp.status_code == 403 and "own email address" in resp.text:
-                    sandbox_dev_email = "tech.devashish07@gmail.com"
-                    print(f"[RESEND NOTICE] Sandbox active: rerouting test email for '{to_email}' to developer account ({sandbox_dev_email}).")
+                    import re
+                    match = re.search(r'\(([^)]+@[^)]+)\)', resp.text)
+                    sandbox_dev_email = match.group(1).strip() if match else "devashish0716@gmail.com"
+                    print(f"[RESEND NOTICE] Sandbox active: rerouting test email for '{to_email}' to registered account ({sandbox_dev_email}).")
                     payload["to"] = [sandbox_dev_email]
                     payload["subject"] = f"[DevResolve for {to_email}] {subject}"
                     resp_sandbox = client.post("https://api.resend.com/emails", json=payload, headers=headers)

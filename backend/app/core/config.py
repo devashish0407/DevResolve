@@ -36,17 +36,38 @@ class Settings(BaseSettings):
     @field_validator("ALLOWED_ORIGINS", mode="before")
     @classmethod
     def parse_allowed_origins(cls, v: Any) -> list[str]:
+        raw_list = []
         if isinstance(v, str):
             v_str = v.strip()
             if v_str.startswith("[") and v_str.endswith("]"):
                 try:
-                    return json.loads(v_str)
+                    raw_list = json.loads(v_str)
                 except Exception:
                     pass
-            return [origin.strip() for origin in v_str.split(",") if origin.strip()]
+            if not raw_list:
+                raw_list = [origin.strip() for origin in v_str.split(",") if origin.strip()]
         elif isinstance(v, (list, tuple, set)):
-            return list(v)
-        return []
+            raw_list = list(v)
+
+        origins = set()
+        for o in raw_list:
+            if isinstance(o, str):
+                cleaned = o.strip().rstrip("/")
+                if cleaned:
+                    origins.add(cleaned)
+                    origins.add(cleaned + "/")
+        # Always guarantee core production origins
+        origins.add("https://dev-resolve-pi.vercel.app")
+        origins.add("http://localhost:5173")
+        origins.add("http://127.0.0.1:5173")
+        return list(origins)
+
+    @field_validator("FRONTEND_URL", mode="before")
+    @classmethod
+    def clean_frontend_url(cls, v: Any) -> str:
+        if isinstance(v, str):
+            return v.strip().rstrip("/")
+        return "https://dev-resolve-pi.vercel.app"
 
     # ── Supabase ─────────────────────────────────────────────────
     SUPABASE_URL: str = ""
