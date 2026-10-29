@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Sparkles, Eye, EyeOff, Loader2, CheckCircle2, ShieldCheck, AlertCircle, Mail, ArrowLeft, RotateCcw, Edit2, KeyRound } from 'lucide-react';
+import { Sparkles, Eye, EyeOff, Loader2, CheckCircle2, ShieldCheck, AlertCircle, Mail, ArrowLeft, RotateCcw, Edit2 } from 'lucide-react';
 import { GithubIcon } from '../components/icons';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/AuthContext';
@@ -25,7 +25,6 @@ export default function SignupPage() {
   const [resendCooldown, setResendCooldown] = useState(0);
   const [resending, setResending] = useState(false);
   const [resendSuccess, setResendSuccess] = useState<string | null>(null);
-  const [devHint, setDevHint] = useState<string | null>(null);
   const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   // Dynamic Password Rule Validation
@@ -88,13 +87,10 @@ export default function SignupPage() {
 
     setLoading(true);
     try {
-      const res = await api.requestSignupOtp(email, password, name);
+      await api.requestSignupOtp(email, password, name);
       setStep('otp');
       setResendCooldown(60);
       setOtpValues(['', '', '', '', '', '']);
-      if (res && res.dev_code) {
-        setDevHint(res.dev_code);
-      }
     } catch (err: any) {
       setError(err?.message || 'Failed to dispatch verification code. Please check your email.');
     } finally {
@@ -160,13 +156,10 @@ export default function SignupPage() {
     setError(null);
     setResendSuccess(null);
     try {
-      const res = await api.resendSignupOtp(email);
+      await api.resendSignupOtp(email);
       setResendCooldown(60);
       setResendSuccess(`A fresh verification code has been dispatched to ${email}`);
       setOtpValues(['', '', '', '', '', '']);
-      if (res && res.dev_code) {
-        setDevHint(res.dev_code);
-      }
       otpInputRefs.current[0]?.focus();
     } catch (err: any) {
       setError(err?.message || 'Failed to resend code. Please try again.');
@@ -423,17 +416,6 @@ export default function SignupPage() {
                 <div className="p-3.5 rounded-xl bg-status-success/10 border border-status-success/30 text-xs text-status-success flex items-start gap-2.5 animate-fade-in">
                   <CheckCircle2 size={16} className="text-status-success shrink-0 mt-0.5" />
                   <div className="flex-1 font-medium leading-relaxed">{resendSuccess}</div>
-                </div>
-              )}
-
-              {devHint && (
-                <div className="p-3.5 rounded-xl bg-accent-blue/10 border border-accent-blue/30 text-xs text-accent-blue flex items-start gap-2.5 animate-fade-in shadow-md">
-                  <KeyRound size={16} className="text-accent-blue shrink-0 mt-0.5" />
-                  <div className="flex-1 font-medium leading-relaxed">
-                    <span className="text-slate-300">Staging Verification Code: </span>
-                    <strong className="font-mono text-white text-sm tracking-widest bg-dark-900 px-2 py-0.5 rounded border border-accent-blue/30">{devHint}</strong>
-                    <p className="text-[11px] text-slate-400 mt-1">To deliver real emails to your Gmail inbox, add your Gmail App Password to Render environment variables.</p>
-                  </div>
                 </div>
               )}
 

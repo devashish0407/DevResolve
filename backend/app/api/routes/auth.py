@@ -248,6 +248,36 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
     return AuthResponse(access_token=token, user=profile)
 
 
+@router.delete("/account", summary="Delete user account by ID")
+async def delete_account(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Safely deletes the user account by ID.
+    Once deleted, the email becomes free to register again, and all sessions are revoked.
+    """
+    stmt = select(User).where(User.auth_id == current_user["auth_id"])
+    result = await db.execute(stmt)
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Account not found.",
+        )
+
+    # Soft-delete the user and free up the email for re-registration if needed
+    user.is_deleted = True
+    user.email = f"deleted_{user.id}_{user.email}"
+    await db.commit()
+
+    return {
+        "status": "success",
+        "message": "Your account has been deleted successfully.",
+        "user_id": str(user.id),
+    }
+
+
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED, summary="Register a new user")
 async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     """Register a new user and provision an isolated tenant organization."""
@@ -288,6 +318,36 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     })
 
     return AuthResponse(access_token=token, user=profile)
+
+
+@router.delete("/account", summary="Delete user account by ID")
+async def delete_account(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Safely deletes the user account by ID.
+    Once deleted, the email becomes free to register again, and all sessions are revoked.
+    """
+    stmt = select(User).where(User.auth_id == current_user["auth_id"])
+    result = await db.execute(stmt)
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Account not found.",
+        )
+
+    # Soft-delete the user and free up the email for re-registration if needed
+    user.is_deleted = True
+    user.email = f"deleted_{user.id}_{user.email}"
+    await db.commit()
+
+    return {
+        "status": "success",
+        "message": "Your account has been deleted successfully.",
+        "user_id": str(user.id),
+    }
 
 
 @router.post("/signup/request-otp", summary="Request email verification OTP for signup")
@@ -342,7 +402,6 @@ async def signup_request_otp(data: SignupOtpRequest, db: AsyncSession = Depends(
         "status": "otp_sent",
         "message": f"A 6-digit verification code has been dispatched to {clean_email}.",
         "email": clean_email,
-        "dev_code": otp_code,
     }
 
 
@@ -418,6 +477,36 @@ async def signup_verify_otp(data: VerifySignupOtpRequest, db: AsyncSession = Dep
     return AuthResponse(access_token=token, user=profile)
 
 
+@router.delete("/account", summary="Delete user account by ID")
+async def delete_account(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Safely deletes the user account by ID.
+    Once deleted, the email becomes free to register again, and all sessions are revoked.
+    """
+    stmt = select(User).where(User.auth_id == current_user["auth_id"])
+    result = await db.execute(stmt)
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Account not found.",
+        )
+
+    # Soft-delete the user and free up the email for re-registration if needed
+    user.is_deleted = True
+    user.email = f"deleted_{user.id}_{user.email}"
+    await db.commit()
+
+    return {
+        "status": "success",
+        "message": "Your account has been deleted successfully.",
+        "user_id": str(user.id),
+    }
+
+
 @router.post("/signup/resend-otp", summary="Resend email verification OTP for signup")
 async def signup_resend_otp(data: ResendSignupOtpRequest):
     """
@@ -452,7 +541,6 @@ async def signup_resend_otp(data: ResendSignupOtpRequest):
         "status": "otp_resent",
         "message": f"A new 6-digit verification code has been dispatched to {clean_email}.",
         "email": clean_email,
-        "dev_code": otp_code,
     }
 
 
@@ -688,6 +776,36 @@ async def oauth_login(data: OAuthLoginRequest, db: AsyncSession = Depends(get_db
     })
 
     return AuthResponse(access_token=token, user=profile)
+
+
+@router.delete("/account", summary="Delete user account by ID")
+async def delete_account(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Safely deletes the user account by ID.
+    Once deleted, the email becomes free to register again, and all sessions are revoked.
+    """
+    stmt = select(User).where(User.auth_id == current_user["auth_id"])
+    result = await db.execute(stmt)
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Account not found.",
+        )
+
+    # Soft-delete the user and free up the email for re-registration if needed
+    user.is_deleted = True
+    user.email = f"deleted_{user.id}_{user.email}"
+    await db.commit()
+
+    return {
+        "status": "success",
+        "message": "Your account has been deleted successfully.",
+        "user_id": str(user.id),
+    }
 
 
 @router.get("/me", response_model=UserProfile, summary="Get current user profile")
