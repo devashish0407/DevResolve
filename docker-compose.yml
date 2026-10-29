@@ -31,14 +31,16 @@ services:
       db:
         condition: service_healthy
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-devresolve}
       OLLAMA_ENDPOINT: ${OLLAMA_ENDPOINT:-http://ollama:11434}
       API_KEY_ENCRYPTION_KEY: ${API_KEY_ENCRYPTION_KEY:-X9gP3W8qY6bZ4vC2mK1jL5nRt7uQ9sV3x0zA8eD6fH4=}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
-      SUPPORT_NOTIFICATION_EMAIL: ${SUPPORT_NOTIFICATION_EMAIL:-devashish0716@gmail.com}
+      SUPPORT_NOTIFICATION_EMAIL: ${SUPPORT_NOTIFICATION_EMAIL:-tech.devashish07@gmail.com}
       SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
