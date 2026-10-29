@@ -70,8 +70,8 @@ class Settings(BaseSettings):
     GOOGLE_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
     GROQ_API_KEY: Optional[str] = None
-    DEFAULT_LLM_PROVIDER: str = "openai"  # openai | anthropic | google
-    DEFAULT_LLM_MODEL: str = "gpt-4o"
+    DEFAULT_LLM_PROVIDER: str = "groq"
+    DEFAULT_LLM_MODEL: str = "qwen/qwen3.8-27b"
     EMBEDDING_MODEL: str = "text-embedding-3-small"
     EMBEDDING_DIMENSIONS: int = 1536
 
@@ -80,16 +80,16 @@ class Settings(BaseSettings):
     GITHUB_CLIENT_SECRET: Optional[str] = None
     GOOGLE_CLIENT_ID: Optional[str] = None
     GOOGLE_CLIENT_SECRET: Optional[str] = None
-    FRONTEND_URL: str = "http://localhost:5173"
-    BACKEND_URL: str = "http://localhost:8000"
+    FRONTEND_URL: str = "https://dev-resolve-pi.vercel.app"
+    BACKEND_URL: str = "https://devresolve-backend.onrender.com"
 
     # ── Mail Protocols / Email Alerts ─────────────────────────────
     SUPPORT_NOTIFICATION_EMAIL: str = "devashish0716@gmail.com"
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
-    SMTP_USER: Optional[str] = None
+    SMTP_USER: Optional[str] = "devashish0716@gmail.com"
     SMTP_PASSWORD: Optional[str] = None
-    SMTP_FROM_EMAIL: str = "alerts@devresolve.io"
+    SMTP_FROM_EMAIL: str = "devashish0716@gmail.com"
     SMTP_FROM_NAME: str = "DevResolve Support Desk"
     SMTP_TLS: bool = True
     RESEND_API_KEY: Optional[str] = None
