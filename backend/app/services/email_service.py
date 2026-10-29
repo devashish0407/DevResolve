@@ -28,6 +28,7 @@ class EmailService:
         self.from_name = getattr(settings, "SMTP_FROM_NAME", None) or os.getenv("SMTP_FROM_NAME") or "DevResolve Support Desk"
         self.smtp_host = getattr(settings, "SMTP_HOST", None) or os.getenv("SMTP_HOST") or "smtp.gmail.com"
         self.smtp_user = (getattr(settings, "SMTP_USER", None) or os.getenv("SMTP_USER") or "devashish0716@gmail.com").strip()
+        self.from_email = getattr(settings, "SMTP_FROM_EMAIL", None) or os.getenv("SMTP_FROM_EMAIL") or self.smtp_user
         
         # Load Gmail App Password from settings, env, or verified fallback
         raw_pwd = getattr(settings, "SMTP_PASSWORD", None) or os.getenv("SMTP_PASSWORD")
@@ -130,20 +131,7 @@ class EmailService:
                         print(f"[RESEND SUCCESS] Delivered to {to_clean} via Resend API (ID: {data.get('id')})!")
                         return {"status": "delivered", "provider": "resend", "recipient": to_clean, "id": data.get("id")}
 
-                    # Resend Sandbox Restriction fallback
-                    if resp.status_code == 403 and "own email address" in resp.text:
-                        import re
-                        match = re.search(r'\(([^)]+@[^)]+)\)', resp.text)
-                        sandbox_dev_email = match.group(1).strip() if match else "devashish0716@gmail.com"
-                        payload["to"] = [sandbox_dev_email]
-                        payload["subject"] = f"[DevResolve for {to_clean}] {subject}"
-                        resp_sandbox = client.post("https://api.resend.com/emails", json=payload, headers=headers)
-                        if resp_sandbox.status_code in (200, 201):
-                            s_data = resp_sandbox.json()
-                            print(f"[RESEND SUCCESS] Dispatched to sandbox email {sandbox_dev_email} (ID: {s_data.get('id')})!")
-                            return {"status": "delivered", "provider": "resend_sandbox", "recipient": sandbox_dev_email, "intended": to_clean}
-
-                    print(f"[RESEND ERROR] Status {resp.status_code}: {resp.text}")
+                    print(f"[RESEND NOTICE] Status {resp.status_code}: {resp.text}")
                     return {"status": "failed", "error": resp.text, "recipient": to_clean}
             except Exception as e:
                 print(f"[RESEND EXCEPTION] Transmission failed: {e}")

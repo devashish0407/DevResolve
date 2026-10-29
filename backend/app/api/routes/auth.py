@@ -100,30 +100,35 @@ async def forgot_password(data: ForgotPasswordRequest, db: AsyncSession = Depend
     result = await db.execute(stmt)
     user = result.scalars().first()
 
-    if user:
-        expire = datetime.utcnow() + timedelta(hours=1)
-        token_payload = {
-            "sub": user.auth_id,
-            "email": user.email,
-            "type": "password_reset",
-            "exp": expire,
-        }
-        token = jwt.encode(token_payload, JWT_SECRET_KEY, algorithm="HS256")
-        reset_url = f"{settings.FRONTEND_URL}/reset-password?token={token}"
-
-        from app.services.email_service import EmailService
-        email_svc = EmailService()
-        asyncio.create_task(
-            email_svc.send_password_reset_email(
-                to_email=user.email,
-                user_name=user.display_name or "Developer",
-                reset_url=reset_url,
-            )
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No account registered with this email address. Please check your spelling or sign up.",
         )
+
+    expire = datetime.utcnow() + timedelta(hours=1)
+    token_payload = {
+        "sub": user.auth_id,
+        "email": user.email,
+        "type": "password_reset",
+        "exp": expire,
+    }
+    token = jwt.encode(token_payload, JWT_SECRET_KEY, algorithm="HS256")
+    reset_url = f"{settings.FRONTEND_URL}/reset-password?token={token}"
+
+    from app.services.email_service import EmailService
+    email_svc = EmailService()
+    asyncio.create_task(
+        email_svc.send_password_reset_email(
+            to_email=user.email,
+            user_name=user.display_name or "Developer",
+            reset_url=reset_url,
+        )
+    )
 
     return {
         "status": "success",
-        "message": "If an account with this email address is registered, a password reset link has been dispatched to your inbox.",
+        "message": f"A password reset link has been dispatched to {user.email}.",
     }
 
 
