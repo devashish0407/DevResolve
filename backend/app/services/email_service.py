@@ -49,21 +49,53 @@ class EmailService:
             except Exception:
                 resend_key = ""
         self.resend_key = (resend_key or "").strip()
+        self.brevo_key = (getattr(settings, "BREVO_API_KEY", None) or os.getenv("BREVO_API_KEY") or "").strip()
 
     def is_smtp_configured(self) -> bool:
         """Checks if real email dispatch credentials are configured."""
-        return bool(self.smtp_user and self.smtp_password) or bool(self.resend_key and len(self.resend_key) >= 10)
+        return bool(self.smtp_user and self.smtp_password) or bool(self.resend_key and len(self.resend_key) >= 10) or bool(self.brevo_key and len(self.brevo_key) >= 10)
 
     def _transmit_email(self, to_email: str, subject: str, plain_text: str, html_text: str) -> Dict[str, Any]:
         """
         Production Email Dispatcher:
-        1. Attempts Gmail Port 465 SSL: delivers directly to ANY user inbox worldwide with zero recipient blocks.
-        2. Falls back to Gmail Port 587 STARTTLS.
-        3. Falls back to Resend REST API over HTTPS (Port 443).
+        1. Attempts Brevo REST API over HTTPS: sends directly to ANY user worldwide with zero recipient blocks and no domain required.
+        2. Attempts Gmail Port 465 SSL: delivers directly to user inbox.
+        3. Attempts Gmail Port 587 STARTTLS.
+        4. Attempts Resend REST API over HTTPS (Port 443).
         """
         to_clean = to_email.strip().lower()
 
-        # ── 1. Primary: Direct Gmail SMTP SSL (Port 465) ──
+        # ── 1. Brevo REST API (HTTPS Port 443 — No domain verification required, sends to ANY recipient) ──
+        if self.brevo_key and len(self.brevo_key) >= 10:
+            try:
+                import httpx
+                brevo_headers = {
+                    "api-key": self.brevo_key,
+                    "Content-Type": "application/json",
+                    "accept": "application/json",
+                }
+                brevo_payload = {
+                    "sender": {
+                        "name": self.from_name,
+                        "email": self.smtp_user or "devashish0716@gmail.com",
+                    },
+                    "to": [{"email": to_clean}],
+                    "subject": subject,
+                    "htmlContent": html_text,
+                    "textContent": plain_text,
+                }
+                with httpx.Client(timeout=10.0) as client:
+                    resp = client.post("https://api.resend.com/emails" if "resend" in self.brevo_key else "https://api.brevo.com/v3/smtp/email", json=brevo_payload, headers=brevo_headers)
+                    if resp.status_code in (200, 201):
+                        data = resp.json()
+                        print(f"[BREVO SUCCESS] Delivered directly to {to_clean} inbox via Brevo API (ID: {data.get('messageId')})!")
+                        return {"status": "delivered", "provider": "brevo", "recipient": to_clean, "id": data.get("messageId")}
+                    else:
+                        print(f"[BREVO NOTICE] Status {resp.status_code}: {resp.text}")
+            except Exception as b_err:
+                print(f"[BREVO WARNING] Brevo HTTP call failed ({b_err}). Proceeding to next provider...")
+
+        # ── 2. Primary: Direct Gmail SMTP SSL (Port 465) ──
         if self.smtp_user and self.smtp_password:
             try:
                 msg = MIMEMultipart("alternative")

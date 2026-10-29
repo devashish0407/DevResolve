@@ -114,6 +114,7 @@ class Settings(BaseSettings):
     SMTP_FROM_NAME: str = "DevResolve Support Desk"
     SMTP_TLS: bool = True
     RESEND_API_KEY: Optional[str] = None
+    BREVO_API_KEY: Optional[str] = None
 
     # ── Security ─────────────────────────────────────────────────
     API_KEY_ENCRYPTION_KEY: str = ""  # Fernet key for encrypting stored API keys
