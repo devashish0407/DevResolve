@@ -283,46 +283,16 @@ async def delete_account(
     }
 
 
-@router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED, summary="Register a new user")
+@router.post("/register", response_model=AuthResponse, status_code=status.HTTP_400_BAD_REQUEST, summary="Direct registration deprecated - OTP verification required")
 async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
-    """Register a new user and provision an isolated tenant organization."""
-    pwd_err = validate_password_strength(data.password)
-    if pwd_err:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=pwd_err,
-        )
-
-    auth_service = AuthService(db)
-    try:
-        user, org = await auth_service.register_user(
-            email=data.email,
-            password=data.password,
-            display_name=data.display_name,
-        )
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
-
-    profile = UserProfile(
-        id=str(user.id),
-        auth_id=user.auth_id,
-        email=user.email,
-        display_name=user.display_name,
-        avatar_url=user.avatar_url,
-        organization_id=str(org.id) if org else None,
+    """
+    Direct registration without OTP verification is strictly disabled.
+    All users must verify their email address via 6-digit OTP before account provisioning.
+    """
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Direct registration is disabled. You must verify your email with a 6-digit OTP via /api/auth/signup/request-otp first.",
     )
-
-    token = create_access_token({
-        "sub": user.auth_id,
-        "email": user.email,
-        "role": "authenticated",
-        "display_name": user.display_name,
-    })
-
-    return AuthResponse(access_token=token, user=profile)
 
 
 @router.delete("/account", summary="Delete user account by ID")
