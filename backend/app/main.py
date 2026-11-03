@@ -51,6 +51,17 @@ async def lifespan(app: FastAPI):
                 await conn.run_sync(_sync_sqlite_schema)
             else:
                 await conn.run_sync(Base.metadata.create_all)
+                # Automatically enforce Row Level Security (RLS) on all public tables in PostgreSQL / Supabase
+                await conn.execute(text("""
+                    DO $$ 
+                    DECLARE 
+                        r RECORD;
+                    BEGIN 
+                        FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP 
+                            EXECUTE 'ALTER TABLE public.' || quote_ident(r.tablename) || ' ENABLE ROW LEVEL SECURITY;'; 
+                        END LOOP; 
+                    END $$;
+                """))
         print("[DATABASE] Successfully connected and synchronized database tables.", flush=True)
     except Exception as e:
         print(f"[DATABASE STARTUP ERROR] Could not connect to database: {e}", flush=True)
